@@ -22,7 +22,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
-from claudemon import events, paths, settings, species, sprites, state  # noqa: E402
+from claudemon import events, paths, process, settings, species, sprites, state  # noqa: E402
 
 HOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "hook", "claudemon_hook.py")
@@ -207,6 +207,13 @@ def cmd_simulate(args):
     rng = random.Random(args.seed)
     states = args.states or list(events.STATES)
 
+    # Borrow this session's terminal identity so click-to-focus is exercisable
+    # against a real pane instead of being stubbed out.
+    tty, claude_pid = (_current_tty(), _claude_pid()) if args.attach else (None, None)
+    if args.attach and not claude_pid:
+        print("warning: no claude ancestor found; clicks will have no target",
+              file=sys.stderr)
+
     created = []
     now = int(time.time())
     for index in range(args.count):
@@ -220,9 +227,9 @@ def cmd_simulate(args):
             species=pick.name,
             shiny=pick.shiny,
             state=states[index % len(states)],
-            pid=os.getpid(),
-            tty=None,
-            terminal="simulated",
+            pid=claude_pid or os.getpid(),
+            tty=tty,
+            terminal="Apple_Terminal" if tty else "simulated",
             started_at=now - rng.randint(10, 3600),
             updated_at=now,
             last_tool=rng.choice(["Bash", "Edit", "Read", "WebSearch", None]),
@@ -242,6 +249,38 @@ def cmd_simulate(args):
 
     _hold(directory, created, args.cycle, rng)
     return 0
+
+
+def _current_tty():
+    """The controlling terminal of this invocation.
+
+    A shell run from a pipeline has no tty of its own, so this walks up the
+    process tree the same way the hook does and takes the first real one it
+    finds. Returns None when nothing in the chain owns a terminal, which is the
+    case for a background agent.
+    """
+    pid = os.getpid()
+    for _ in range(process.MAX_DEPTH):
+        info = process.lookup_proc(pid)
+        if info is None:
+            return None
+        normalized = process.normalize_tty(info.tty)
+        if normalized:
+            return normalized
+        if info.ppid <= 1:
+            return None
+        pid = info.ppid
+    return None
+
+
+def _claude_pid():
+    """The pid of the claude process hosting this invocation, if any.
+
+    This is the same value the hook records, and the key that herdr's
+    foreground_process_group_id is matched against.
+    """
+    info = process.find_claude(os.getpid())
+    return info.pid if info else None
 
 
 _FAKE_LABELS = [
@@ -319,6 +358,8 @@ def build_parser():
     p.add_argument("--cycle", type=float, default=0,
                    help="seconds between random state changes (0 = hold still)")
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--attach", action="store_true",
+                   help="point simulated sessions at this terminal so clicks focus it")
     p.set_defaults(func=cmd_simulate)
 
     return parser
