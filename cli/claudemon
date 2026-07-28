@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""claudemon — manage the desktop sprite overlay for Claude Code sessions.
+
+    claudemon install      wire the hooks into ~/.claude/settings.json
+    claudemon uninstall    remove them again
+    claudemon doctor       report what is and is not working
+    claudemon ls           list live session records
+    claudemon fetch        download and cache sprites
+    claudemon simulate     write fake sessions so the overlay can be exercised
+"""
+
+import argparse
+import concurrent.futures
+import os
+import random
+import signal
+import sys
+import time
+import urllib.error
+import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "hook"))
+
+from claudemon import events, paths, settings, species, sprites, state  # noqa: E402
+
+HOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "hook", "claudemon_hook.py")
+
+FETCH_TIMEOUT = 20
+
+
+# --------------------------------------------------------------------------- install
+
+def cmd_install(args):
+    path = args.settings or settings.default_path()
+    try:
+        settings.install(path, HOOK_PATH, python=args.python)
+    except settings.SettingsError as exc:
+        return _fail(str(exc))
+
+    print("Installed Claudemon hooks into %s" % path)
+    print("  events: %s" % ", ".join(settings.EVENTS))
+    print("  hook:   %s" % HOOK_PATH)
+    print("\nExisting sessions won't have sprites until they fire their next event.")
+    return 0
+
+
+def cmd_uninstall(args):
+    path = args.settings or settings.default_path()
+    try:
+        settings.uninstall(path)
+    except settings.SettingsError as exc:
+        return _fail(str(exc))
+    print("Removed Claudemon hooks from %s" % path)
+    return 0
+
+
+# --------------------------------------------------------------------------- doctor
+
+def cmd_doctor(args):
+    path = args.settings or settings.default_path()
+    ok = True
+
+    installed = settings.is_installed(path)
+    ok &= _check("hooks installed", installed, path)
+    ok &= _check("hook script present", os.path.exists(HOOK_PATH), HOOK_PATH)
+
+    sessions = state.read_all(paths.sessions_dir())
+    live = [r for r in sessions if not state.is_stale(r)]
+    _check("state directory", os.path.isdir(paths.sessions_dir()), paths.sessions_dir())
+    print("  %-22s %d live, %d stale" % ("sessions", len(live), len(sessions) - len(live)))
+
+    cached = _cached_species()
+    print("  %-22s %d species cached in %s" % ("sprites", len(cached), paths.sprites_dir()))
+
+    running = _overlay_running()
+    _check("overlay running", running, "Claudemon.app")
+
+    if paths.disabled():
+        print("\n  CLAUDEMON_DISABLE is set — the hook is short-circuiting.")
+        ok = False
+
+    if not installed:
+        print("\nRun `claudemon install` to wire up the hooks.")
+    if not running:
+        print("Launch Claudemon.app to see sprites.")
+    return 0 if ok else 1
+
+
+def _check(label, ok, detail=""):
+    print("  %-22s %s  %s" % (label, "ok  " if ok else "MISSING", detail))
+    return bool(ok)
+
+
+def _overlay_running():
+    import subprocess
+    try:
+        out = subprocess.run(["pgrep", "-x", "Claudemon"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, timeout=5)
+        return out.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+# --------------------------------------------------------------------------- ls
+
+def cmd_ls(args):
+    records = sorted(state.read_all(paths.sessions_dir()), key=lambda r: r.started_at)
+    if not records:
+        print("No sessions.")
+        return 0
+
+    print("%-26s %-12s %-14s %-11s %s" % ("LABEL", "STATE", "SPECIES", "TTY", "AGE"))
+    now = int(time.time())
+    for rec in records:
+        stale = " (stale)" if state.is_stale(rec, now) else ""
+        print("%-26s %-12s %-14s %-11s %s%s" % (
+            rec.label[:26], rec.state, rec.species,
+            (rec.tty or "-").replace("/dev/", ""),
+            _age(now - rec.started_at), stale,
+        ))
+    return 0
+
+
+def _age(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+# --------------------------------------------------------------------------- fetch
+
+def cmd_fetch(args):
+    names = args.species or (species.SPECIES if args.all else [])
+    if not names:
+        return _fail("name a species, or pass --all")
+
+    unknown = [n for n in names if n not in species.SPECIES]
+    if unknown:
+        return _fail("unknown species: %s" % ", ".join(unknown))
+
+    os.makedirs(paths.sprites_dir(), exist_ok=True)
+    jobs = [(name, variant) for name in names for variant in sprites.VARIANTS]
+    todo = [j for j in jobs
+            if args.force or not os.path.exists(_sprite_path(j[0], j[1]))]
+
+    if not todo:
+        print("All %d sprites already cached." % len(names))
+        return 0
+
+    print("Fetching %d files for %d species..." % (len(todo), len(names)))
+    failures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for filename, error in pool.map(_fetch_one, todo):
+            if error:
+                failures.append((filename, error))
+
+    print("Cached %d files in %s" % (len(todo) - len(failures), paths.sprites_dir()))
+    for target, error in failures:
+        print("  failed: %s (%s)" % (target, error), file=sys.stderr)
+    return 1 if failures else 0
+
+
+def _sprite_path(name, variant):
+    return os.path.join(paths.sprites_dir(), variant.filename(name))
+
+
+def _fetch_one(job):
+    name, variant = job
+    dest = _sprite_path(name, variant)
+    try:
+        req = urllib.request.Request(variant.url(name),
+                                     headers={"User-Agent": sprites.USER_AGENT})
+        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as response:
+            body = response.read()
+        tmp = dest + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(body)
+        os.replace(tmp, dest)
+        return variant.filename(name), None
+    except (urllib.error.URLError, OSError) as exc:
+        return variant.filename(name), exc
+
+
+def _cached_species():
+    try:
+        files = os.listdir(paths.sprites_dir())
+    except OSError:
+        return set()
+    return {f.split(".")[0].replace("-shiny", "").replace("-static", "")
+            for f in files if f.endswith((".gif", ".png"))}
+
+
+# --------------------------------------------------------------------------- simulate
+
+def cmd_simulate(args):
+    """Write fake session records so the overlay can be exercised without agents.
+
+    Records carry this process's pid, so the overlay's reaper treats them as live
+    and despawns them the moment this command exits.
+    """
+    directory = paths.sessions_dir()
+    rng = random.Random(args.seed)
+    states = args.states or list(events.STATES)
+
+    created = []
+    now = int(time.time())
+    for index in range(args.count):
+        session_id = "simulated-%02d" % index
+        taken = {r.species for r in state.read_all(directory)}
+        pick = species.assign(session_id, taken=taken)
+        record = state.SessionRecord(
+            session_id=session_id,
+            label=rng.choice(_FAKE_LABELS),
+            cwd=os.getcwd(),
+            species=pick.name,
+            shiny=pick.shiny,
+            state=states[index % len(states)],
+            pid=os.getpid(),
+            tty=None,
+            terminal="simulated",
+            started_at=now - rng.randint(10, 3600),
+            updated_at=now,
+            last_tool=rng.choice(["Bash", "Edit", "Read", "WebSearch", None]),
+        )
+        state.write(directory, record)
+        created.append(session_id)
+
+    print("Simulated %d sessions in %s" % (len(created), directory))
+    for sid in created:
+        rec = state.read(directory, sid)
+        print("  %-14s %-11s %s" % (rec.label[:14], rec.state, rec.species))
+
+    if args.cycle:
+        print("\nCycling states every %ss. Ctrl-C to stop and clean up." % args.cycle)
+    else:
+        print("\nHolding. Ctrl-C to stop and clean up.")
+
+    _hold(directory, created, args.cycle, rng)
+    return 0
+
+
+_FAKE_LABELS = [
+    "zeno-api", "paradox@nda", "zeno-data-pipe", "internal-tools", "kaggle",
+    "weekly-reports", "dbt", "zeno-agent-evals", "point41-nda", "connector",
+    "claudemon", "paradox@redline",
+]
+
+
+def _hold(directory, session_ids, cycle, rng):
+    stop = {"now": False}
+
+    def _stop(_signum, _frame):
+        stop["now"] = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    last = time.time()
+    try:
+        while not stop["now"]:
+            time.sleep(0.2)
+            if cycle and (time.time() - last) >= cycle:
+                last = time.time()
+                sid = rng.choice(session_ids)
+                record = state.read(directory, sid)
+                if record:
+                    record.state = rng.choice(list(events.STATES))
+                    record.updated_at = int(time.time())
+                    state.write(directory, record)
+                    print("  %s -> %s" % (record.label, record.state))
+    finally:
+        for sid in session_ids:
+            state.delete(directory, sid)
+        print("\nCleaned up %d simulated sessions." % len(session_ids))
+
+
+# --------------------------------------------------------------------------- main
+
+def _fail(message):
+    print("error: %s" % message, file=sys.stderr)
+    return 1
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="claudemon", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("install", help="wire hooks into settings.json")
+    p.add_argument("--settings", help="settings file (default ~/.claude/settings.json)")
+    p.add_argument("--python", help="python interpreter for the hook command")
+    p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("uninstall", help="remove Claudemon's hook entries")
+    p.add_argument("--settings")
+    p.set_defaults(func=cmd_uninstall)
+
+    p = sub.add_parser("doctor", help="report configuration health")
+    p.add_argument("--settings")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("ls", help="list session records")
+    p.set_defaults(func=cmd_ls)
+
+    p = sub.add_parser("fetch", help="download sprites into the cache")
+    p.add_argument("species", nargs="*")
+    p.add_argument("--all", action="store_true", help="fetch the entire roster")
+    p.add_argument("--force", action="store_true", help="re-download cached sprites")
+    p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("simulate", help="write fake sessions for testing")
+    p.add_argument("--count", type=int, default=6)
+    p.add_argument("--states", nargs="*", choices=list(events.STATES))
+    p.add_argument("--cycle", type=float, default=0,
+                   help="seconds between random state changes (0 = hold still)")
+    p.add_argument("--seed", type=int, default=7)
+    p.set_defaults(func=cmd_simulate)
+
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -12,7 +12,7 @@ from typing import Set
 # itself from across a desk, which matters more here than roster completeness.
 SPECIES = [
     "bulbasaur", "charmander", "squirtle", "caterpie", "pidgey", "rattata",
-    "pikachu", "sandshrew", "nidoran-f", "clefairy", "vulpix", "jigglypuff",
+    "pikachu", "sandshrew", "nidoranf", "nidoranm", "clefairy", "vulpix", "jigglypuff",
     "zubat", "oddish", "paras", "venonat", "diglett", "meowth", "psyduck",
     "mankey", "growlithe", "poliwag", "abra", "machop", "bellsprout",
     "tentacool", "geodude", "ponyta", "slowpoke", "magnemite", "farfetchd",
