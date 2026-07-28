@@ -304,7 +304,31 @@ to `~/.claude/claudemon/` and drawn on your own screen.
 
 The installer backs up your settings file first, marks its own entries so
 `uninstall` removes exactly those and nothing else, and refuses to touch a
-settings file it can't parse.
+settings file it can't parse. One side effect worth knowing: because it rewrites
+the file atomically through a temp file, `settings.json` ends up owner-only
+(0600) even if it was more permissive before.
+
+Three more things a security review of this project surfaced, which you should
+know rather than have to discover:
+
+- **The session directory is user-writable and unauthenticated.** Anything
+  running as you can drop a file into `~/.claude/claudemon/sessions/` and make a
+  sprite appear. Values read back from those files are therefore treated as
+  untrusted: adapters receive the pid and tty as arguments and never as shell or
+  AppleScript text, and a species that isn't a plain Showdown id is refused
+  rather than used to build a file path. If you write an adapter, keep that
+  property — never interpolate a session field into a command string.
+- **Sprites come from a third-party CDN.** `claudemon fetch` downloads from
+  `play.pokemonshowdown.com`. Responses are pinned to that host across redirects,
+  size-capped, and checked for GIF/PNG magic bytes before being cached, but they
+  are not signature-verified.
+- **The overlay asks for Automation permission** so it can control your terminal
+  via AppleScript. That grant is what makes click-to-focus work; denying it
+  leaves everything else functional.
+
+There are no third-party dependencies — the Python side is standard library
+only, and the Swift package has no external packages — so there is no dependency
+supply chain to audit beyond this repository itself.
 
 ## Sprites and licensing
 
