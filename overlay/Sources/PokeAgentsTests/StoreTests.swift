@@ -137,6 +137,59 @@ func runStoreTests(_ h: Harness) {
         h.expect(!SessionStore.processExists(0), "real pid check rejects zero")
     }
 
+    h.suite("SessionStore deduplication") { h in
+        // A session can be described twice: by its own hook, and by adopt. Two
+        // sprites for one session is the bug this prevents.
+        func rec(_ id: String, pid: Int32?, updated: Int = 100) -> SessionRecord {
+            SessionRecord(sessionID: id, label: id, cwd: "/tmp", species: "psyduck",
+                          shiny: false, state: .running, pid: pid, tty: nil,
+                          terminal: nil, startedAt: 1, updatedAt: updated,
+                          lastTool: nil)
+        }
+
+        let hooked = rec("512c4f5d-uuid", pid: 54316)
+        let adopted = rec("adopted-herdr-54316", pid: 54316)
+
+        h.equal(SessionStore.deduplicated([hooked, adopted]).count, 1,
+                "one process yields one record")
+        h.equal(SessionStore.deduplicated([hooked, adopted]).first?.sessionID,
+                "512c4f5d-uuid", "the hook-written record wins")
+        h.equal(SessionStore.deduplicated([adopted, hooked]).first?.sessionID,
+                "512c4f5d-uuid", "and wins regardless of input order")
+
+        h.equal(SessionStore.deduplicated([
+            rec("a", pid: 1), rec("b", pid: 2), rec("c", pid: 3),
+        ]).count, 3, "distinct processes are all kept")
+
+        // Records with no pid cannot be matched up, so none may be discarded.
+        h.equal(SessionStore.deduplicated([
+            rec("x", pid: nil), rec("y", pid: nil),
+        ]).count, 2, "records without a pid are all kept")
+
+        h.equal(SessionStore.deduplicated([
+            rec("adopted-a-7", pid: 7, updated: 10),
+            rec("adopted-b-7", pid: 7, updated: 20),
+        ]).first?.sessionID, "adopted-b-7",
+                "two adopted records for one process: the fresher wins")
+
+        let tied = [rec("adopted-b-7", pid: 7), rec("adopted-a-7", pid: 7)]
+        h.equal(SessionStore.deduplicated(tied).first?.sessionID,
+                SessionStore.deduplicated(tied.reversed()).first?.sessionID,
+                "a full tie resolves deterministically")
+
+        h.equal(SessionStore.deduplicated([]).count, 0, "empty input is fine")
+
+        h.expect(rec("adopted-herdr-1", pid: 1).isAdopted, "adopted ids are recognised")
+        h.expect(!rec("512c4f5d-uuid", pid: 1).isAdopted,
+                 "a real session id is not mistaken for an adopted one")
+
+        // Order must be stable, or sprites would swap places between reloads.
+        let many = [rec("c", pid: 3), rec("a", pid: 1), rec("b", pid: 2)]
+        h.equal(SessionStore.deduplicated(many).map(\.sessionID),
+                SessionStore.deduplicated(many.reversed()).map(\.sessionID),
+                "output order does not depend on input order")
+    }
+
     h.suite("Sprite naming") { h in
         h.equal(SpriteNaming.filename(species: "psyduck", shiny: false, animated: true),
                 "psyduck.gif", "animated plain")

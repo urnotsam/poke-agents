@@ -62,6 +62,10 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.lastTool = lastTool
     }
 
+    /// True for a record synthesised by `poke-agents adopt` rather than written
+    /// by the session's own hook.
+    public var isAdopted: Bool { sessionID.hasPrefix("adopted-") }
+
     /// Showdown species ids are lowercase alphanumeric, nothing else.
     public static func isValidSpecies(_ value: String) -> Bool {
         !value.isEmpty && value.count <= 64

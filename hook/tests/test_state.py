@@ -171,6 +171,32 @@ class TestPrune(StateDirTestCase):
         state.prune(self.dir)
         self.assertEqual(state.prune(self.dir), [])
 
+    def test_removes_an_adopted_record_superseded_by_a_hook_record(self):
+        # A session adopted before its hook ever fired is described twice.
+        live = int(time.time())
+        state.write(self.dir, self.record(session_id="real-uuid", updated_at=live))
+        state.write(self.dir, self.record(session_id="adopted-herdr-%d" % os.getpid(),
+                                          updated_at=live))
+        self.assertEqual(state.prune(self.dir), ["adopted-herdr-%d" % os.getpid()])
+        self.assertEqual([r.session_id for r in state.read_all(self.dir)], ["real-uuid"])
+
+    def test_keeps_an_adopted_record_with_no_hook_counterpart(self):
+        live = int(time.time())
+        state.write(self.dir, self.record(session_id="adopted-herdr-1", updated_at=live))
+        self.assertEqual(state.prune(self.dir), [])
+
+    def test_keeps_adopted_records_for_other_processes(self):
+        live = int(time.time())
+        state.write(self.dir, self.record(session_id="real-uuid", updated_at=live))
+        state.write(self.dir, self.record(session_id="adopted-herdr-other",
+                                          pid=os.getppid(), updated_at=live))
+        state.prune(self.dir)
+        self.assertEqual(len(state.read_all(self.dir)), 2)
+
+    def test_identifies_adopted_records(self):
+        self.assertTrue(state.is_adopted(self.record(session_id="adopted-herdr-1")))
+        self.assertFalse(state.is_adopted(self.record(session_id="512c4f5d-uuid")))
+
 
 class TestLiveness(unittest.TestCase):
     def test_current_process_is_alive(self):

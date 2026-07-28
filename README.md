@@ -75,10 +75,12 @@ them immediately:
 ./cli/poke-agents adopt --watch
 ```
 
-The two sources cooperate: once a session writes its own record via the hook,
-`adopt` steps aside for it, so you never get two sprites for one session. Hooks
-label a session by its repository; `adopt` can use the terminal's title, which is
-often more specific.
+The two sources cooperate. `adopt` steps aside for any session that already has
+a hook-written record, and the overlay draws only one sprite per process even if
+both records exist — a session adopted *before* its hook first fired is described
+twice on disk, and `poke-agents prune` clears the leftover. Hooks label a session
+by its repository; `adopt` can use the terminal's title, which is often more
+specific.
 
 Check everything landed:
 
@@ -219,9 +221,11 @@ terminal at all — the sprite shakes instead.
 | Hide This Sprite | Mutes it until its state changes |
 | Display / Size | The same submenus as the menu bar |
 
-Hiding is a mute, not a dismissal. A hidden sprite reappears the moment its
-session does something new, so a session you hid can never go on to need you
-silently. The menu bar shows a **Show N hidden** item while any are muted.
+Hiding is a mute, not a dismissal — but only `attention` brings a sprite back.
+That distinction matters: a working session cycles `running` → `done` → `running`
+on every tool call, so un-muting on any change at all would make hiding useless.
+Muting still cannot lose an alert, which is the property worth keeping. The menu
+bar shows a **Show N hidden** item while any are muted.
 
 ## Labels
 

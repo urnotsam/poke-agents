@@ -29,9 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var isPaused = false
 
-    /// Sessions muted from the display, with the state they were muted in. They
-    /// come back as soon as that changes, so hiding can never lose an alert.
-    private var hidden: [String: SessionState] = [:]
+    /// Sessions muted from the display.
+    ///
+    /// Only `attention` brings one back. An earlier version un-muted on any
+    /// state change, which made hiding useless: a working session cycles
+    /// running -> done -> running on every tool call, so it reappeared within
+    /// seconds. Muting still cannot lose an alert, which is the property that
+    /// actually matters.
+    private var hidden: Set<String> = []
 
 
     override init() {
@@ -81,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isPaused else { return }
 
         let all = store.loadLive()
-        let live = all.filter { hidden[$0.sessionID] == nil }
+        let live = all.filter { !hidden.contains($0.sessionID) }
         // NSScreen.main is a lookup, not a stored property; read it once.
         let screen = screenFrame
         let placements = layout.place(live,
@@ -91,13 +96,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         records = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionID, $0) })
 
-        // Un-hide anything that has moved on, and forget sessions that ended.
-        for (id, mutedState) in hidden {
+        // Bring back anything that now needs you, and forget sessions that ended.
+        for id in hidden {
             guard let record = records[id] else {
-                hidden.removeValue(forKey: id)
+                hidden.remove(id)
                 continue
             }
-            if record.state != mutedState { hidden.removeValue(forKey: id) }
+            if record.state == .attention { hidden.remove(id) }
         }
 
         for record in live where placed[record.sessionID] != nil {
@@ -226,12 +231,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func menuHide(_ sender: NSMenuItem) {
         guard let id = sessionID(from: sender), let record = records[id] else { return }
-        // Hiding is a mute, not a delete: the sprite returns when the session
-        // does something new, so a hidden session cannot silently need you.
-        hidden[id] = record.state
+        // A mute, not a delete: the sprite returns if the session comes to need
+        // you, so hiding can never make an alert disappear silently.
+        hidden.insert(id)
         windows[id]?.fadeOutAndClose()
         windows.removeValue(forKey: id)
-        Diagnostics.log("hid \(record.label) until its state changes")
+        Diagnostics.log("hid \(record.label) until it needs attention")
     }
 
     // MARK: motion

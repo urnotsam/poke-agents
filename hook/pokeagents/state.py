@@ -93,17 +93,34 @@ def delete(directory: str, session_id: str) -> None:
     _unlink(path)
 
 
-def prune(directory: str, now: Optional[int] = None) -> List[str]:
-    """Delete records whose session is gone. Returns the ids removed.
+def is_adopted(record: SessionRecord) -> bool:
+    """True for a record synthesised by `poke-agents adopt`, rather than written
+    by the session's own hook."""
+    return record.session_id.startswith("adopted-")
 
-    SessionEnd covers the clean case, and the overlay stops *drawing* stale
-    records, but nothing removes the files. A process killed with SIGKILL —
-    including `poke-agents simulate` — would otherwise leave records behind
-    permanently.
+
+def prune(directory: str, now: Optional[int] = None) -> List[str]:
+    """Delete records nothing will clean up otherwise. Returns the ids removed.
+
+    Two kinds go:
+
+    Dead sessions. SessionEnd covers the clean case, and the overlay stops
+    *drawing* stale records, but nothing removes the files. A process killed
+    with SIGKILL — including `poke-agents simulate` — would otherwise leave
+    records behind permanently.
+
+    Superseded adopted records. Adopt keys records by pid and the hook keys them
+    by session id, so a session adopted before its hook ever fired ends up
+    described twice. The overlay refuses to draw both, but the stale file would
+    linger and keep showing up in `ls`.
     """
+    records = read_all(directory)
+    hooked_pids = {r.pid for r in records if r.pid and not is_adopted(r)}
+
     removed = []
-    for record in read_all(directory):
-        if is_stale(record, now):
+    for record in records:
+        superseded = is_adopted(record) and record.pid in hooked_pids
+        if superseded or is_stale(record, now):
             delete(directory, record.session_id)
             removed.append(record.session_id)
     return removed
