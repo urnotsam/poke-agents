@@ -26,7 +26,8 @@ final class SpriteWindow: NSPanel {
     var shakeUntil: Date?
 
     init(record: SessionRecord, image: NSImage, metrics: SpriteMetrics,
-         onClick: @escaping (String) -> Void) {
+         onClick: @escaping (String) -> Void,
+         onRightClick: @escaping (String, NSEvent) -> Void) {
         self.sessionID = record.sessionID
         self.metrics = metrics
         self.spriteView = SpriteView(metrics: metrics)
@@ -50,6 +51,7 @@ final class SpriteWindow: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
 
         spriteView.onClick = { onClick(record.sessionID) }
+        spriteView.onRightClick = { onRightClick(record.sessionID, $0) }
         contentView = spriteView
         update(record: record, image: image)
     }
@@ -62,6 +64,9 @@ final class SpriteWindow: NSPanel {
     func update(record: SessionRecord, image: NSImage) {
         spriteView.apply(record: record, image: image)
     }
+
+    /// The view a context menu should be anchored to.
+    var menuAnchor: NSView { spriteView }
 
     func tick(_ elapsed: TimeInterval) {
         spriteView.tick(elapsed)

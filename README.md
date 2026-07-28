@@ -201,12 +201,47 @@ choice and looks quite good in the cluster modes.
 
 ## Clicking a sprite
 
-Clicking focuses the terminal running that session — the sprite is a launcher,
-not just a status light. See the `!` in the corner of your eye, click it, you're
-in the session that needs you.
+**Left click** focuses the terminal running that session — the sprite is a
+launcher, not just a status light. See the `!` in the corner of your eye, click
+it, you're in the session that needs you.
 
 If no adapter can focus the session — a background agent (`claude --bg`) has no
 terminal at all — the sprite shakes instead.
+
+**Right click** opens a menu for that specific session:
+
+| Item | What it does |
+|---|---|
+| *(header)* | The session's label, state, last tool used, and directory |
+| Focus Session | Same as a left click |
+| Copy Working Directory | Puts the session's `cwd` on the clipboard |
+| Reveal in Finder | Opens that directory |
+| Hide This Sprite | Mutes it until its state changes |
+| Display / Size | The same submenus as the menu bar |
+
+Hiding is a mute, not a dismissal. A hidden sprite reappears the moment its
+session does something new, so a session you hid can never go on to need you
+silently. The menu bar shows a **Show N hidden** item while any are muted.
+
+## Labels
+
+The label carries a session's identity, since the species is random. Two sources:
+
+- **From hooks** — the git repository name, plus the branch for a worktree
+  (`acme@hotfix`).
+- **From `adopt`** — the terminal's title, which is usually what you asked the
+  agent to do.
+
+Titles are phrased as instructions, so they get compressed rather than simply
+cut off. "Implement Granola document demo feature requests" truncated at 20
+characters gives you "Implement Granola do…" — all of which every other title
+also starts with. Dropping the leading verb and the filler words instead gives
+**"Granola document"**, which is the part that tells them apart.
+
+Labels are capped at 20 characters, wide enough for a `repo@branch` worktree
+label. Change `MAX_LEN` in
+[`hook/pokeagents/labels.py`](hook/pokeagents/labels.py) if you want more or
+less.
 
 ## Adding your terminal
 

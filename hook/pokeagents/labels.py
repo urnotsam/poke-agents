@@ -8,11 +8,30 @@ import os
 import subprocess
 from typing import Optional
 
-# Wide enough for a repo@branch worktree label, which is the case the label
-# most needs to disambiguate. Narrower cut real names in half.
-MAX_LEN = 24
+# Labels sit under a sprite, and the card is sized to fit them, so a long label
+# makes every sprite wider and the whole display heavier. Short enough to stay
+# glanceable, long enough that a `repo@branch` worktree label — the case the
+# label most needs to disambiguate — still fits whole.
+MAX_LEN = 20
 _GIT_TIMEOUT = 2.0
 _FALLBACK = "session"
+
+# Session titles are usually phrased as instructions, and the leading verb is
+# the least distinguishing part — a great many of them start with "Implement"
+# or "Add".
+_LEADING_VERBS = frozenset("""
+add build change check clean create debug design document draft fix
+implement improve investigate make migrate move port refactor remove rename
+research review rewrite set setup ship test try update upgrade wire write
+""".split())
+
+# Interrogatives and vague qualifiers carry no identity either: "why deployment"
+# is a worse label than "deployment".
+_STOPWORDS = frozenset("""
+a an and are as at be by for from how in into is it its new of on onto or our
+so that the their then there these this to up via what when where which who
+why with within your
+""".split())
 
 
 def format_label(display_name: Optional[str], repo: Optional[str],
@@ -20,7 +39,7 @@ def format_label(display_name: Optional[str], repo: Optional[str],
                  cwd_basename: str) -> str:
     """Compose a label from already-resolved parts. Pure."""
     if display_name and display_name.strip():
-        return _truncate(display_name.strip())
+        return _truncate(shorten(display_name))
 
     if repo:
         if is_worktree:
@@ -38,10 +57,46 @@ def _truncate(text: str) -> str:
     return text[: MAX_LEN - 1] + "…"
 
 
+def shorten(text: str, max_len: int = MAX_LEN) -> str:
+    """Compress a session title into something that fits under a sprite.
+
+    Titles read like instructions — "Implement the export feature for billing" —
+    and plain truncation keeps the opening words, which are the ones every title
+    shares. Dropping the leading verb and the filler words keeps the part that
+    actually distinguishes one session from another.
+    """
+    words = text.strip().split()
+    if not words:
+        return ""
+
+    # Only drop a leading verb when something recognisable survives it.
+    if len(words) > 1 and words[0].strip(":,").lower() in _LEADING_VERBS:
+        words = words[1:]
+
+    meaningful = [w for w in words if w.lower().strip(".,:;") not in _STOPWORDS]
+    if not meaningful:
+        meaningful = words
+
+    kept = []
+    length = 0
+    for word in meaningful:
+        extra = len(word) + (1 if kept else 0)
+        if kept and length + extra > max_len:
+            break
+        kept.append(word)
+        length += extra
+
+    result = " ".join(kept)
+    # The first word is always taken, so one very long word can still overflow.
+    if len(result) > max_len:
+        result = result[: max_len - 1] + "…"
+    return result
+
+
 def derive(cwd: str, display_name: Optional[str] = None) -> str:
     """Resolve a label for a working directory, consulting git when possible."""
     if display_name and display_name.strip():
-        return _truncate(display_name.strip())
+        return _truncate(shorten(display_name))
 
     repo, branch, is_worktree = _git_context(cwd)
     return format_label(

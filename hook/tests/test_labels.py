@@ -73,6 +73,73 @@ class TestFormatLabel(unittest.TestCase):
         self.assertTrue(got)
 
 
+class TestShorten(unittest.TestCase):
+    """Titles read like instructions, so plain truncation keeps the words every
+    title shares and drops the ones that identify it."""
+
+    def test_drops_the_leading_verb(self):
+        self.assertEqual(labels.shorten("Implement the export feature"),
+                         "export feature")
+
+    def test_drops_filler_words(self):
+        self.assertEqual(labels.shorten("Fix the bug in the login flow"),
+                         "bug login flow")
+
+    def test_result_fits_the_budget(self):
+        long_titles = [
+            "Implement Granola document demo feature requests",
+            "Create visual dashboard for running agents with Pokemon sprites",
+            "Investigate why the deployment pipeline keeps failing randomly",
+            "Refactor the authentication middleware to support single sign on",
+        ]
+        for title in long_titles:
+            self.assertLessEqual(len(labels.shorten(title)), labels.MAX_LEN, title)
+
+    def test_keeps_whole_words(self):
+        got = labels.shorten("Implement Granola document demo feature requests")
+        self.assertFalse(got.endswith("…"))
+        self.assertTrue(all(word in
+                            "Implement Granola document demo feature requests"
+                            for word in got.split()))
+
+    def test_a_single_long_word_is_truncated_rather_than_dropped(self):
+        got = labels.shorten("supercalifragilisticexpialidocious")
+        self.assertLessEqual(len(got), labels.MAX_LEN)
+        self.assertTrue(got.endswith("…"))
+
+    def test_a_lone_verb_is_kept(self):
+        # Dropping it would leave nothing at all.
+        self.assertEqual(labels.shorten("refactor"), "refactor")
+
+    def test_a_verb_followed_only_by_stopwords_still_yields_something(self):
+        self.assertTrue(labels.shorten("Update the"))
+
+    def test_short_titles_pass_through_unchanged(self):
+        self.assertEqual(labels.shorten("billing worker"), "billing worker")
+
+    def test_empty_input_is_empty(self):
+        self.assertEqual(labels.shorten(""), "")
+        self.assertEqual(labels.shorten("   "), "")
+
+    def test_is_deterministic(self):
+        title = "Implement Granola document demo feature requests"
+        self.assertEqual(labels.shorten(title), labels.shorten(title))
+
+    def test_applies_through_format_label(self):
+        got = labels.format_label(display_name="Implement the export feature",
+                                  repo=None, branch=None, is_worktree=False,
+                                  cwd_basename="")
+        self.assertEqual(got, "export feature")
+
+    def test_repo_labels_are_not_mangled(self):
+        # Only titles get shortened; a repo name is already the identity.
+        self.assertEqual(
+            labels.format_label(display_name=None, repo="test-runner",
+                                branch="main", is_worktree=False,
+                                cwd_basename="test-runner"),
+            "test-runner")
+
+
 def _git(cwd, *args):
     subprocess.run(["git"] + list(args), cwd=cwd, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -20,6 +20,7 @@ final class SpriteView: NSView {
     /// Forwarded to the window. Declared here because the view is what the
     /// event system hit-tests first.
     var onClick: (() -> Void)?
+    var onRightClick: ((NSEvent) -> Void)?
 
     init(metrics: SpriteMetrics) {
         self.metrics = metrics
@@ -139,5 +140,14 @@ final class SpriteView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onClick?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightClick?(event)
+    }
+
+    /// Control-click is the other way to ask for a context menu.
+    override func otherMouseDown(with event: NSEvent) {
+        super.otherMouseDown(with: event)
     }
 }

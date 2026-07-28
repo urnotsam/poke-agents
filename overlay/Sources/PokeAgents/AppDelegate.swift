@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var isPaused = false
 
+    /// Sessions muted from the display, with the state they were muted in. They
+    /// come back as soon as that changes, so hiding can never lose an alert.
+    private var hidden: [String: SessionState] = [:]
+
 
     override init() {
         let home = Paths.home()
@@ -76,7 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func reload() {
         guard !isPaused else { return }
 
-        let live = store.loadLive()
+        let all = store.loadLive()
+        let live = all.filter { hidden[$0.sessionID] == nil }
         // NSScreen.main is a lookup, not a stored property; read it once.
         let screen = screenFrame
         let placements = layout.place(live,
@@ -85,6 +90,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let placed = Dictionary(uniqueKeysWithValues: placements.map { ($0.sessionID, $0) })
 
         records = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionID, $0) })
+
+        // Un-hide anything that has moved on, and forget sessions that ended.
+        for (id, mutedState) in hidden {
+            guard let record = records[id] else {
+                hidden.removeValue(forKey: id)
+                continue
+            }
+            if record.state != mutedState { hidden.removeValue(forKey: id) }
+        }
 
         for record in live where placed[record.sessionID] != nil {
             let image = cache.image(for: record)
@@ -108,9 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeWindow(record: SessionRecord, image: NSImage) -> SpriteWindow {
-        let window = SpriteWindow(record: record, image: image, metrics: metrics) {
-            [weak self] id in self?.handleClick(id)
-        }
+        let window = SpriteWindow(
+            record: record, image: image, metrics: metrics,
+            onClick: { [weak self] id in self?.handleClick(id) },
+            onRightClick: { [weak self] id, event in
+                self?.showContextMenu(for: id, event: event)
+            })
         window.orderFrontRegardless()
         return window
     }
@@ -133,6 +150,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.windows[sessionID]?.shake()
             }
         }
+    }
+
+    // MARK: context menu
+
+    /// Right-clicking a sprite acts on that session specifically, rather than
+    /// making the user find it again in the menu bar list.
+    private func showContextMenu(for sessionID: String, event: NSEvent) {
+        guard let record = records[sessionID], let window = windows[sessionID]
+        else { return }
+
+        let menu = NSMenu()
+
+        let header = NSMenuItem(title: record.label, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+
+        let detail = NSMenuItem(title: subtitle(for: record), action: nil,
+                                keyEquivalent: "")
+        detail.isEnabled = false
+        menu.addItem(detail)
+        menu.addItem(.separator())
+
+        menu.addItem(item("Focus Session", #selector(menuFocus(_:)), sessionID))
+        menu.addItem(item("Copy Working Directory", #selector(menuCopyPath(_:)), sessionID))
+        menu.addItem(item("Reveal in Finder", #selector(menuReveal(_:)), sessionID))
+        menu.addItem(.separator())
+        menu.addItem(item("Hide This Sprite", #selector(menuHide(_:)), sessionID))
+        menu.addItem(.separator())
+        menu.addItem(displayMenuItem())
+        menu.addItem(sizeMenuItem())
+
+        NSMenu.popUpContextMenu(menu, with: event, for: window.menuAnchor)
+    }
+
+    private func subtitle(for record: SessionRecord) -> String {
+        var parts = [record.state.rawValue]
+        if let tool = record.lastTool { parts.append(tool) }
+        if record.cwd.isEmpty == false {
+            parts.append((record.cwd as NSString).lastPathComponent)
+        }
+        return parts.joined(separator: "  ·  ")
+    }
+
+    private func item(_ title: String, _ action: Selector,
+                      _ sessionID: String) -> NSMenuItem {
+        let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        entry.target = self
+        entry.representedObject = sessionID
+        return entry
+    }
+
+    private func sessionID(from sender: NSMenuItem) -> String? {
+        sender.representedObject as? String
+    }
+
+    @objc private func menuFocus(_ sender: NSMenuItem) {
+        guard let id = sessionID(from: sender) else { return }
+        handleClick(id)
+    }
+
+    @objc private func menuCopyPath(_ sender: NSMenuItem) {
+        guard let id = sessionID(from: sender), let record = records[id],
+              !record.cwd.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(record.cwd, forType: .string)
+        Diagnostics.log("copied path for \(record.label)")
+    }
+
+    @objc private func menuReveal(_ sender: NSMenuItem) {
+        guard let id = sessionID(from: sender), let record = records[id],
+              !record.cwd.isEmpty else { return }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: record.cwd)
+    }
+
+    @objc private func menuHide(_ sender: NSMenuItem) {
+        guard let id = sessionID(from: sender), let record = records[id] else { return }
+        // Hiding is a mute, not a delete: the sprite returns when the session
+        // does something new, so a hidden session cannot silently need you.
+        hidden[id] = record.state
+        windows[id]?.fadeOutAndClose()
+        windows.removeValue(forKey: id)
+        Diagnostics.log("hid \(record.label) until its state changes")
     }
 
     // MARK: motion
@@ -206,6 +305,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    keyEquivalent: "")
             entry.target = self
             entry.representedObject = record.sessionID
+            menu.addItem(entry)
+        }
+        if !hidden.isEmpty {
+            let entry = NSMenuItem(title: "Show \(hidden.count) hidden",
+                                   action: #selector(unhideAll), keyEquivalent: "")
+            entry.target = self
             menu.addItem(entry)
         }
         if overflow > 0 {
@@ -299,6 +404,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func focusFromMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         handleClick(id)
+    }
+
+    @objc private func unhideAll() {
+        hidden.removeAll()
+        reload()
     }
 
     @objc private func togglePause() {
