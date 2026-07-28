@@ -73,9 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isPaused else { return }
 
         let live = store.loadLive()
+        // NSScreen.main is a lookup, not a stored property; read it once.
+        let screen = screenFrame
         let placements = layout.place(live,
-                                      screenWidth: screenFrame.width,
-                                      screenHeight: screenFrame.height)
+                                      screenWidth: screen.width,
+                                      screenHeight: screen.height)
         let placed = Dictionary(uniqueKeysWithValues: placements.map { ($0.sessionID, $0) })
 
         records = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionID, $0) })
@@ -98,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows[placement.sessionID]?.placement = placement
         }
 
-        updateStatusItem(live: live)
+        updateStatusItem(live: live, screen: screen)
     }
 
     private func makeWindow(record: SessionRecord, image: NSImage) -> SpriteWindow {
@@ -133,6 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func animate() {
         let now = Date()
         let elapsed = now.timeIntervalSince(startedAt)
+        // Hoisted out of the loop: this runs 30 times a second, and the screen
+        // cannot change between two windows of the same frame.
+        let screen = screenFrame
 
         for (id, window) in windows {
             guard let record = records[id], let placement = window.placement else { continue }
@@ -144,16 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let point = layout.point(for: placement, elapsed: elapsed,
                                      speed: Self.marqueeSpeed,
-                                     screenWidth: screenFrame.width,
-                                     screenHeight: screenFrame.height,
+                                     screenWidth: screen.width,
+                                     screenHeight: screen.height,
                                      extraWander: bob)
 
             // The layout places the sprite; the window around it is larger, so
             // offset by the label strip below and the padding either side.
             window.setFrameOrigin(NSPoint(
-                x: screenFrame.minX + point.x - window.metrics.sideInset
+                x: screen.minX + point.x - window.metrics.sideInset
                     + window.shakeOffset(now: now),
-                y: screenFrame.minY + point.y - window.metrics.bottomInset))
+                y: screen.minY + point.y - window.metrics.bottomInset))
             window.tick(elapsed)
         }
     }
@@ -171,11 +176,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    private func updateStatusItem(live: [SessionRecord]) {
+    private func updateStatusItem(live: [SessionRecord], screen: NSRect? = nil) {
+        let bounds = screen ?? screenFrame
         let attention = live.filter { $0.state == .attention }.count
         let running = live.filter { $0.state == .running }.count
-        let overflow = layout.overflowCount(live, screenWidth: screenFrame.width,
-                                            screenHeight: screenFrame.height)
+        let overflow = layout.overflowCount(live, screenWidth: bounds.width,
+                                            screenHeight: bounds.height)
 
         statusItem?.button?.title = attention > 0 ? "◓ \(attention)!" : "◓ \(running)"
 
@@ -290,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isPaused {
             for window in windows.values { window.fadeOutAndClose() }
             windows.removeAll()
-            updateStatusItem(live: [])
+            updateStatusItem(live: [], screen: nil)
         } else {
             reload()
         }

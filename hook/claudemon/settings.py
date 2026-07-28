@@ -11,6 +11,8 @@ import shutil
 import time
 from typing import List, Optional
 
+from . import atomicio
+
 # Identifies an entry as ours. Matching on this rather than on the command
 # string means uninstall still works after the hook has been moved.
 MARKER = "claudemonManaged"
@@ -130,13 +132,7 @@ def _load(path: str) -> dict:
 
 
 def _save(path: str, data: dict) -> None:
-    parent = os.path.dirname(path) or "."
-    os.makedirs(parent, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as fh:
-        json.dump(data, fh, indent=2)
-        fh.write("\n")
-    os.replace(tmp, path)
+    atomicio.write_text(path, json.dumps(data, indent=2) + "\n")
 
 
 def _backup(path: str) -> None:

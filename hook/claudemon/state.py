@@ -9,11 +9,11 @@ import errno
 import json
 import os
 import re
-import tempfile
 import time
 from dataclasses import dataclass, asdict
 from typing import List, Optional
 
+from . import atomicio
 from .events import RUNNING, ATTENTION, DONE  # noqa: F401  (re-exported)
 
 MAX_AGE_SECONDS = 24 * 60 * 60
@@ -57,17 +57,7 @@ def _safe_path(directory: str, session_id: str) -> str:
 def write(directory: str, record: SessionRecord) -> None:
     """Write a record atomically so readers never see a partial file."""
     path = _safe_path(directory, record.session_id)
-    os.makedirs(directory, exist_ok=True)
-
-    payload = json.dumps(asdict(record), indent=2, sort_keys=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".json")
-    try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write(payload)
-        os.replace(tmp, path)
-    except BaseException:
-        _unlink(tmp)
-        raise
+    atomicio.write_text(path, json.dumps(asdict(record), indent=2, sort_keys=True))
 
 
 def read(directory: str, session_id: str) -> Optional[SessionRecord]:

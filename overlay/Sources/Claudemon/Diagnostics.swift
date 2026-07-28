@@ -10,13 +10,17 @@ enum Diagnostics {
     private static let maxBytes = 256 * 1024
     private static let queue = DispatchQueue(label: "dev.sam.claudemon.diagnostics")
 
+    // Building one of these is comparatively expensive, and logging happens on
+    // every click.
+    private static let timestamps = ISO8601DateFormatter()
+
     static func url() -> URL {
         Paths.home().appendingPathComponent("overlay.log")
     }
 
     static func log(_ message: String) {
         queue.async {
-            let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
+            let line = "\(timestamps.string(from: Date()))  \(message)\n"
             let target = url()
             try? FileManager.default.createDirectory(
                 at: target.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -94,6 +94,56 @@ class TestSessionLifecycle(RunnerTestCase):
         self.assertGreater(self.current().updated_at, first)
 
 
+class TestLazyProcessResolution(RunnerTestCase):
+    """Finding the owning process costs one `ps` per level of the process tree,
+    and PreToolUse fires on every tool call, so it must only happen when the
+    answer is actually needed."""
+
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+
+    def resolver(self):
+        self.calls.append(1)
+        return PROC
+
+    def fire_lazy(self, event, **extra):
+        payload = {"hook_event_name": event, "session_id": "sid-1", "cwd": self.cwd}
+        payload.update(extra)
+        runner.apply_event(self.dir, payload, resolve_proc=self.resolver)
+
+    def test_creating_a_record_resolves_the_process(self):
+        self.fire_lazy("SessionStart")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_updating_an_established_record_does_not_resolve_the_process(self):
+        self.fire_lazy("SessionStart")
+        self.calls.clear()
+        for _ in range(5):
+            self.fire_lazy("PreToolUse", tool_name="Bash")
+            self.fire_lazy("Stop")
+        self.assertEqual(self.calls, [], "process tree walked for an established record")
+
+    def test_deleting_never_resolves_the_process(self):
+        self.fire_lazy("SessionEnd")
+        self.assertEqual(self.calls, [])
+
+    def test_untracked_event_never_resolves_the_process(self):
+        self.fire_lazy("SomeFutureHook")
+        self.assertEqual(self.calls, [])
+
+    def test_resolver_is_called_at_most_once_per_event(self):
+        self.fire_lazy("SessionStart")
+        self.assertLessEqual(len(self.calls), 1)
+
+    def test_record_missing_a_pid_adopts_one_on_the_next_event(self):
+        runner.apply_event(self.dir, {"hook_event_name": "SessionStart",
+                                      "session_id": "sid-1", "cwd": self.cwd}, proc=None)
+        self.assertIsNone(self.current().pid)
+        self.fire_lazy("Stop")
+        self.assertEqual(self.current().pid, PROC.pid)
+
+
 class TestResilience(RunnerTestCase):
     def test_event_for_unknown_session_adopts_it_rather_than_dropping_it(self):
         # Hooks installed mid-session mean the first event may not be SessionStart.

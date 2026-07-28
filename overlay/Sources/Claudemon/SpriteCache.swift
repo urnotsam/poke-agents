@@ -28,13 +28,6 @@ final class SpriteCache {
         return image
     }
 
-    var cachedSpeciesCount: Int {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return Set(names.compactMap { $0.split(separator: ".").first.map(String.init) }
-            .map { $0.replacingOccurrences(of: "-shiny", with: "")
-                     .replacingOccurrences(of: "-static", with: "") }).count
-    }
-
     /// A Poké Ball, drawn rather than shipped so the app bundles no game assets.
     private static func drawPlaceholder() -> NSImage {
         let size = NSSize(width: 96, height: 96)

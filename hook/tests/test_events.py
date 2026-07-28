@@ -4,10 +4,9 @@ from claudemon import events
 
 
 class TestTransitionFor(unittest.TestCase):
-    def test_session_start_spawns_a_running_session(self):
+    def test_session_start_marks_running(self):
         t = events.transition_for("SessionStart")
         self.assertEqual(t.state, events.RUNNING)
-        self.assertTrue(t.creates)
         self.assertFalse(t.deletes)
 
     def test_user_prompt_submit_marks_running(self):
@@ -34,10 +33,6 @@ class TestTransitionFor(unittest.TestCase):
     def test_missing_event_name_is_ignored(self):
         self.assertIsNone(events.transition_for(""))
         self.assertIsNone(events.transition_for(None))
-
-    def test_only_session_start_creates(self):
-        creating = [n for n in events.HANDLED if events.transition_for(n).creates]
-        self.assertEqual(creating, ["SessionStart"])
 
     def test_every_handled_event_has_a_transition(self):
         for name in events.HANDLED:

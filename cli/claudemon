@@ -238,14 +238,7 @@ def cmd_adopt(args):
         return 0
 
     print("Watching herdr every %.1fs. Ctrl-C to stop." % args.interval)
-    stop = {"now": False}
-
-    def _stop(_signum, _frame):
-        stop["now"] = True
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
+    stop = _install_stop_flag()
     adopted = set()
     try:
         while not stop["now"]:
@@ -270,15 +263,17 @@ def _adopt_once(return_ids=False):
     agents = result.get("agents", [])
 
     now = int(time.time())
+    # Read the directory once and track assignments as we go; re-reading it per
+    # new agent turned a poll into N full directory scans.
+    taken = {r.species for r in state.read_all(directory)}
     ids = []
     for agent in agents:
         pane = agent.get("pane_id")
         if not pane:
             continue
 
-        info = _herdr_json(["pane", "process-info", "--pane", pane]) or {}
-        pid = info.get("process_info", {}).get("foreground_process_group_id")
-        if not isinstance(pid, int) or pid <= 0:
+        pid = _pane_pid(pane)
+        if pid is None:
             continue
 
         session_id = "herdr-" + pane.replace(":", "-")
@@ -286,11 +281,11 @@ def _adopt_once(return_ids=False):
 
         existing = state.read(directory, session_id)
         if existing is None:
-            taken = {r.species for r in state.read_all(directory)}
             pick = species.assign(session_id, taken=taken)
             started, name, shiny = now, pick.name, pick.shiny
         else:
             started, name, shiny = existing.started_at, existing.species, existing.shiny
+        taken.add(name)
 
         state.write(directory, state.SessionRecord(
             session_id=session_id,
@@ -419,10 +414,9 @@ def _focusable_pids():
     """
     pids = []
     for pane in _herdr(["pane", "list"], "panes", "pane_id"):
-        info = _herdr_json(["pane", "process-info", "--pane", pane])
-        group = (info or {}).get("process_info", {}).get("foreground_process_group_id")
-        if isinstance(group, int) and group > 0:
-            pids.append(group)
+        pid = _pane_pid(pane)
+        if pid is not None:
+            pids.append(pid)
 
     if not pids:
         info = process.find_claude(os.getpid())
@@ -432,23 +426,34 @@ def _focusable_pids():
 
 
 def _herdr_json(args):
+    import json
     import subprocess
-    for path in ("/opt/homebrew/bin/herdr", "/usr/local/bin/herdr"):
-        if not os.path.exists(path):
-            continue
-        try:
-            out = subprocess.run([path] + args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if out.returncode != 0:
-            return None
-        try:
-            import json
-            return json.loads(out.stdout.decode()).get("result")
-        except (ValueError, UnicodeDecodeError):
-            return None
-    return None
+
+    path = _herdr_path()
+    if not path:
+        return None
+    try:
+        out = subprocess.run([path] + args, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        return json.loads(out.stdout.decode()).get("result")
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _pane_pid(pane):
+    """The claude pid running in a herdr pane, or None.
+
+    This is the key the overlay matches sessions against, so it is resolved the
+    same way everywhere rather than re-reaching into the JSON per call site.
+    """
+    info = _herdr_json(["pane", "process-info", "--pane", pane]) or {}
+    pid = info.get("process_info", {}).get("foreground_process_group_id")
+    return pid if isinstance(pid, int) and pid > 0 else None
 
 
 def _herdr(args, collection, key):
@@ -464,14 +469,7 @@ _FAKE_LABELS = [
 
 
 def _hold(directory, session_ids, cycle, rng):
-    stop = {"now": False}
-
-    def _stop(_signum, _frame):
-        stop["now"] = True
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
+    stop = _install_stop_flag()
     last = time.time()
     try:
         while not stop["now"]:
@@ -492,6 +490,22 @@ def _hold(directory, session_ids, cycle, rng):
 
 
 # --------------------------------------------------------------------------- main
+
+def _install_stop_flag():
+    """Wire SIGINT/SIGTERM to a flag the long-running loops poll.
+
+    Shared so a change to shutdown behaviour applies to every loop instead of
+    only the one that was remembered.
+    """
+    stop = {"now": False}
+
+    def _stop(_signum, _frame):
+        stop["now"] = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+    return stop
+
 
 def _fail(message):
     print("error: %s" % message, file=sys.stderr)

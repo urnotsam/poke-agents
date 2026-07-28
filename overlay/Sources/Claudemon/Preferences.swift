@@ -20,8 +20,10 @@ struct Preferences: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        mode = (try? c.decodeIfPresent(DisplayMode.self, forKey: .mode)) as? DisplayMode ?? .default
-        size = (try? c.decodeIfPresent(SpriteSize.self, forKey: .size)) as? SpriteSize ?? .default
+        // `try?` covers both "key absent" and "present but not a value we
+        // recognise", per field, so one bad key cannot reset the other.
+        mode = (try? c.decode(DisplayMode.self, forKey: .mode)) ?? .default
+        size = (try? c.decode(SpriteSize.self, forKey: .size)) ?? .default
     }
 
     static func url() -> URL {

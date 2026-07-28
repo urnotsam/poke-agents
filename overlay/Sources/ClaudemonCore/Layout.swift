@@ -81,10 +81,6 @@ public struct Layout: Sendable {
         self.mode = mode
     }
 
-    public func with(mode: DisplayMode) -> Layout {
-        Layout(config: config, mode: mode)
-    }
-
     // MARK: - capacity
 
     /// Total travel distance before a sprite repeats. One sprite longer than the

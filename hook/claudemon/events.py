@@ -17,7 +17,6 @@ STATES = (RUNNING, ATTENTION, DONE)
 @dataclass(frozen=True)
 class Transition:
     state: Optional[str]
-    creates: bool = False
     deletes: bool = False
     records_tool: bool = False
 
@@ -26,7 +25,7 @@ class Transition:
 # exactly the "blocked on you" condition. Stop means the turn ended, so the agent
 # is finished rather than blocked.
 _TRANSITIONS = {
-    "SessionStart": Transition(state=RUNNING, creates=True),
+    "SessionStart": Transition(state=RUNNING),
     "UserPromptSubmit": Transition(state=RUNNING),
     "PreToolUse": Transition(state=RUNNING, records_tool=True),
     "Notification": Transition(state=ATTENTION),

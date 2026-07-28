@@ -50,8 +50,8 @@ def main() -> int:
             return 0
 
         payload = json.loads(raw)
-        proc = process.find_claude(os.getpid())
-        runner.apply_event(paths.sessions_dir(), payload, proc=proc)
+        runner.apply_event(paths.sessions_dir(), payload,
+                           resolve_proc=lambda: process.find_claude(os.getpid()))
     except Exception as exc:  # noqa: BLE001 - a hook must never propagate
         _log("claudemon hook error: %r" % (exc,))
     return 0
