@@ -711,8 +711,11 @@ def build_parser():
                    help="which agent harness to wire up (default: claude-code)")
     p.set_defaults(func=cmd_install)
 
-    p = sub.add_parser("uninstall", help="remove PokeAgents's hook entries")
+    p = sub.add_parser("uninstall", help="remove what poke-agents installed")
     p.add_argument("--settings")
+    p.add_argument("--harness", default="all",
+                   choices=list(harness.names()) + ["all"],
+                   help="which harness to unwire (default: all)")
     p.set_defaults(func=cmd_uninstall)
 
     p = sub.add_parser("doctor", help="report configuration health")
