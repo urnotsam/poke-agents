@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""poke-agents — manage the desktop sprite overlay for Claude Code sessions.
+"""poke-agents — manage the desktop sprite overlay for coding agent sessions.
 
-    poke-agents install      wire the hooks into ~/.claude/settings.json
+    poke-agents install      wire up a harness (default: Claude Code)
     poke-agents uninstall    remove them again
     poke-agents doctor       report what is and is not working
     poke-agents ls           list live session records

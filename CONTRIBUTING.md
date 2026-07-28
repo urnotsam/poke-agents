@@ -54,7 +54,7 @@ keep them that way; a suite that cannot fail is not evidence.
 
 ## Things worth knowing before changing the hook
 
-`hook/pokeagents_hook.py` runs inside every Claude Code session on every event.
+`hook/pokeagents_hook.py` runs inside every agent session on every event.
 Two rules are not negotiable:
 
 1. **Always exit 0.** A hook that fails loudly disrupts real work.

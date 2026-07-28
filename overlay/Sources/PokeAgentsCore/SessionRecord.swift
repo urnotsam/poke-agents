@@ -19,7 +19,7 @@ public enum SessionState: String, Codable, CaseIterable, Sendable {
     public var isAnimated: Bool { self != .done }
 }
 
-/// One live Claude Code session, as written by the hook.
+/// One live agent session, whichever harness reported it.
 ///
 /// Decoding is deliberately forgiving: the hook may be a newer version than the
 /// overlay, and a single malformed file must never take down the display.

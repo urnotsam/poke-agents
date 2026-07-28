@@ -37,8 +37,10 @@ starts flashing in the corner of your eye answers that question for free.
 - [Display modes](#display-modes)
 - [Sizes](#sizes)
 - [Sprite states](#sprite-states)
+  - [Background agents](#background-agents)
 - [Species, and shiny rates](#species-and-shiny-rates)
 - [Clicking a sprite](#clicking-a-sprite)
+- [Labels](#labels)
 - [Adding your terminal](#adding-your-terminal)
 - [Other agent harnesses](#other-agent-harnesses)
 - [Command reference](#command-reference)
@@ -55,7 +57,7 @@ starts flashing in the corner of your eye answers that question for free.
 - macOS 13 or later
 - Xcode Command Line Tools (`xcode-select --install`) — full Xcode is **not** needed
 - Python 3.8+ (macOS ships this)
-- Claude Code or OpenCode
+- At least one agent harness: Claude Code, OpenCode, goose or Crush
 
 ## Install
 
@@ -65,14 +67,16 @@ cd poke-agents
 
 ./overlay/build.sh            # builds PokeAgents.app (~30s, no Xcode required)
 ./cli/poke-agents fetch --all   # caches the roster (~118 MB, one time)
-./cli/poke-agents install       # wires Claude Code hooks + terminal adapters
-# or: ./cli/poke-agents install --harness opencode
-# or: ./cli/poke-agents install --harness all
+./cli/poke-agents install       # Claude Code, plus terminal adapters
+# --harness opencode | goose | crush | all
 open overlay/PokeAgents.app
 ```
 
-`install` backs up `~/.claude/settings.json` before touching it, and only ever
-adds entries it marks as its own — see [what this installs](#what-this-installs-and-what-it-can-do).
+Every installer backs up any file it edits, marks the entries it adds, and
+removes exactly those on `uninstall` — see
+[what this installs](#what-this-installs-and-what-it-can-do). For Claude Code
+that file is `~/.claude/settings.json`; the others write their own config, and
+OpenCode gets a plugin file.
 
 Sessions already running won't have sprites until they next do something. To see
 them immediately:
@@ -97,8 +101,8 @@ Check everything landed:
 ## How it works
 
 ```
-Claude Code session
-      │  hook events (SessionStart, PreToolUse, Notification, Stop, …)
+agent session                       Claude Code, OpenCode, goose, Crush
+      │  lifecycle events (start, tool, needs-user, idle, end)
       ▼
 pokeagents_hook.py                  Python, standard library only
       │  one atomic JSON write
@@ -123,8 +127,9 @@ Two consequences worth knowing:
   recorded pid still exists and despawns the ones that don't. Without that, the
   display slowly fills with ghosts and stops meaning anything.
 - **The hook is built to stay out of your way.** It always exits 0 and never
-  writes to stdout — `SessionStart` stdout gets injected into the model's context,
-  so a stray `print` would quietly pollute your conversation. Diagnostics go to
+  writes to stdout — some harnesses feed hook stdout back into the model's
+  context, so a stray `print` would quietly pollute your conversation.
+  Diagnostics go to
   `~/.claude/poke-agents/hook.log`.
 
 ## Display modes
@@ -157,6 +162,8 @@ revealed the labels overlapping while the sprites technically didn't.
 ## Sizes
 
 Small (44pt), Medium (58pt), Large (72pt), from the menu bar under **Size**.
+Small is the default — the overlay is meant for peripheral vision, and a corner
+cluster of large sprites takes up real screen.
 
 Gen 5 sprites are around 96px natively, so even Large is a slight downscale and
 everything stays crisp — sampling is nearest-neighbour, because smoothing pixel
@@ -169,6 +176,13 @@ art is the fastest way to make it look cheap.
 | `running` | The agent is working | Idle animation loops, sprite drifts along |
 | `attention` | **The agent is waiting on you** | Fast bob, orange `!` bubble, pulsing glow, label at full brightness |
 | `done` | The turn finished | Static sprite, dimmed to 60%, `zZz` drifting up |
+
+`attention` is the state the whole thing exists to surface, so it also wins any
+contest for screen space: if more sprites are live than fit, an `attention`
+sprite evicts a `done` one rather than being hidden itself. Each harness reports
+it slightly differently — Claude Code's `Notification`, OpenCode's
+`permission.asked` — but it always means the same thing: the agent is blocked on
+you.
 
 ### Background agents
 
@@ -192,14 +206,8 @@ does not depend on colour vision.
 ### What does *not* get a sprite
 
 Subagents — the `Task` fan-outs an agent spawns internally — run inside their
-parent session and never start a session of their own, so they produce no
-record and no sprite. The parent simply shows `running` while they work.
-
-`attention` comes from Claude Code's `Notification` hook, which covers both
-permission prompts and idle input requests. It's the state the whole thing exists
-to surface, so it also wins any contest for screen space: if more sprites are
-live than fit, an `attention` sprite will evict a `done` one rather than be
-hidden itself.
+parent session and never start one of their own, so they produce no record and
+no sprite. The parent simply shows `running` while they work.
 
 ## Species, and shiny rates
 
@@ -251,8 +259,10 @@ choice and looks quite good in the cluster modes.
 launcher, not just a status light. See the `!` in the corner of your eye, click
 it, you're in the session that needs you.
 
-If no adapter can focus the session — a background agent (`claude --bg`) has no
-terminal at all — the sprite shakes instead.
+If no adapter can focus the session, the sprite shakes instead. That mostly
+happens when no adapter recognises your terminal — run `poke-agents terminals`
+to check. Background agents genuinely have nowhere to jump to, which is why
+[they are hidden by default](#background-agents).
 
 **Right click** opens a menu for that specific session:
 
@@ -262,7 +272,7 @@ terminal at all — the sprite shakes instead.
 | Focus Session | Same as a left click |
 | Copy Working Directory | Puts the session's `cwd` on the clipboard |
 | Reveal in Finder | Opens that directory |
-| Hide This Sprite | Mutes it until its state changes |
+| Hide This Sprite | Mutes it until that session needs you |
 | Display / Size | The same submenus as the menu bar |
 
 Hiding is a mute, not a dismissal — but only `attention` brings a sprite back.
@@ -358,6 +368,7 @@ Full contract: **[harnesses/README.md](harnesses/README.md)**.
 | `poke-agents ls` | List live sessions as a table |
 | `poke-agents adopt [--watch]` | Show sessions your terminal already knows about |
 | `poke-agents fetch --all` | Download and cache the sprite roster |
+| `poke-agents prune` | Delete session records whose process is gone |
 | `poke-agents terminals` | List adapters and which ones detect |
 | `poke-agents simulate [--count N]` | Write fake sessions, for working on the overlay itself |
 

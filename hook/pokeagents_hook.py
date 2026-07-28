@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Claude Code hook entry point for PokeAgents.
+"""Hook entry point for PokeAgents.
 
-Wire this into SessionStart, UserPromptSubmit, PreToolUse, Notification, Stop,
-and SessionEnd. It updates one JSON file per session and gets out of the way.
+Reads one lifecycle event on stdin and updates one JSON file per session, then
+gets out of the way. Harness-agnostic: which vocabulary the event uses is
+decided by the `harness` field in the payload, or by `--harness <name>` for
+harnesses that cannot add a field of their own. See harnesses/README.md.
 
-Two rules govern everything here, because this code runs inside every live
-Claude Code session:
+Two rules govern everything here, because this code runs inside every live agent
+session:
 
   1. Always exit 0. A hook that fails loudly disrupts real work.
-  2. Never write to stdout. SessionStart stdout is injected into the session as
+  2. Never write to stdout. Some harnesses feed hook stdout back into the model's
      context, so a stray print would silently pollute the conversation.
 
 Diagnostics go to ~/.claude/poke-agents/hook.log. Set POKEAGENTS_DISABLE=1 to turn
