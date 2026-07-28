@@ -1,15 +1,20 @@
 import AppKit
 import ClaudemonCore
 
-/// One borderless window per sprite.
+/// One borderless panel per sprite.
 ///
 /// Sizing the window to the sprite is what makes click-through free: clicks land
 /// on the sprite because that is the only place a window exists, and everywhere
 /// else they reach whatever is underneath.
-final class SpriteWindow: NSWindow {
+///
+/// This is an `NSPanel` rather than an `NSWindow`, and specifically a
+/// `.nonactivatingPanel`. A plain window owned by an accessory app cannot
+/// receive a click without the app being activated first, which is how the
+/// click handling was silently dead: the events were never delivered at all.
+final class SpriteWindow: NSPanel {
     let sessionID: String
-    private let spriteView = SpriteView()
-    private var onClick: ((String) -> Void)?
+    let metrics: SpriteMetrics
+    private let spriteView: SpriteView
 
     /// Where the layout wants this sprite, and how it may move. Replaced
     /// wholesale whenever the layout reruns, including on a mode change.
@@ -20,27 +25,37 @@ final class SpriteWindow: NSWindow {
     /// on its next frame.
     var shakeUntil: Date?
 
-    init(record: SessionRecord, image: NSImage, onClick: @escaping (String) -> Void) {
+    init(record: SessionRecord, image: NSImage, metrics: SpriteMetrics,
+         onClick: @escaping (String) -> Void) {
         self.sessionID = record.sessionID
-        self.onClick = onClick
+        self.metrics = metrics
+        self.spriteView = SpriteView(metrics: metrics)
 
-        super.init(contentRect: NSRect(origin: .zero, size: SpriteView.totalSize),
-                   styleMask: [.borderless], backing: .buffered, defer: false)
+        super.init(contentRect: NSRect(origin: .zero, size: metrics.total),
+                   styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: false)
 
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
         ignoresMouseEvents = false
         isMovableByWindowBackground = false
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = true
+        hidesOnDeactivate = false
+
         // Above normal windows but below the menu bar, and present on every
         // Space so sprites do not vanish when you switch desktops.
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) - 1)
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
 
+        spriteView.onClick = { onClick(record.sessionID) }
         contentView = spriteView
         update(record: record, image: image)
     }
 
+    /// Never take keyboard focus: clicking a sprite should jump you to a
+    /// terminal, not move focus onto the overlay.
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -50,10 +65,6 @@ final class SpriteWindow: NSWindow {
 
     func tick(_ elapsed: TimeInterval) {
         spriteView.tick(elapsed)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onClick?(sessionID)
     }
 
     /// Ask for a shake, used when a click has nowhere to go.

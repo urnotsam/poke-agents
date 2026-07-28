@@ -18,6 +18,19 @@ let screens: [(Double, Double)] = [
     (1024, 768), (1440, 900), (1512, 982), (1728, 1117), (3440, 1440),
 ]
 
+/// Config for a sprite size, matching what the app builds. The bubble inset
+/// mirrors SpriteMetrics: the window reserves ~30% of the sprite height above
+/// it for the `!` bubble, plus clearance.
+func config(for size: SpriteSize) -> Layout.Config {
+    .standard(spriteSize: size.points,
+              bubbleInset: (size.points * 0.30).rounded() + 4 + 10)
+}
+
+/// Every (size, screen) combination the invariants must hold for.
+let sizedScreens: [(SpriteSize, Double, Double)] = SpriteSize.allCases.flatMap { size in
+    screens.map { (size, $0.0, $0.1) }
+}
+
 func runLayoutTests(_ h: Harness) {
     runSelectionTests(h)
     runUniversalModeTests(h)
@@ -75,27 +88,27 @@ private func runSelectionTests(_ h: Harness) {
 private func runUniversalModeTests(_ h: Harness) {
     h.suite("All modes: capacity is honest") { h in
         for mode in DisplayMode.allCases {
-            let layout = Layout(mode: mode)
-            for (width, height) in screens {
+            for (size, width, height) in sizedScreens {
+                let layout = Layout(config: config(for: size), mode: mode)
+                let tag = "\(mode)/\(size) @\(width)x\(height)"
                 let capacity = layout.capacity(screenWidth: width, screenHeight: height)
-                h.expect(capacity > 0, "\(mode) @\(width)x\(height): nothing fits")
-                h.expect(capacity <= layout.config.maxVisible,
-                         "\(mode) @\(width)x\(height): capacity exceeds the cap")
+                h.expect(capacity > 0, "\(tag): nothing fits")
+                h.expect(capacity <= layout.config.maxVisible, "\(tag): capacity exceeds the cap")
 
                 let records = (0..<30).map { make(id: "s\($0)", startedAt: $0) }
                 h.equal(layout.place(records, screenWidth: width, screenHeight: height).count,
-                        capacity, "\(mode) @\(width)x\(height): places exactly capacity")
+                        capacity, "\(tag): places exactly capacity")
                 h.equal(layout.overflowCount(records, screenWidth: width, screenHeight: height),
-                        30 - capacity, "\(mode) @\(width)x\(height): overflow is the remainder")
+                        30 - capacity, "\(tag): overflow is the remainder")
             }
         }
     }
 
     h.suite("All modes: sprites stay on screen") { h in
-        let size = 72.0
         for mode in DisplayMode.allCases {
-            let layout = Layout(mode: mode)
-            for (width, height) in screens {
+            for (spriteSize, width, height) in sizedScreens {
+                let layout = Layout(config: config(for: spriteSize), mode: mode)
+                let size = spriteSize.points
                 let capacity = layout.capacity(screenWidth: width, screenHeight: height)
                 let records = (0..<capacity).map { make(id: "s\($0)", startedAt: $0) }
                 let placements = layout.place(records, screenWidth: width, screenHeight: height)
@@ -126,10 +139,10 @@ private func runUniversalModeTests(_ h: Harness) {
     }
 
     h.suite("All modes: sprites never overlap") { h in
-        let size = 72.0
         for mode in DisplayMode.allCases {
-            let layout = Layout(mode: mode)
-            for (width, height) in screens {
+            for (spriteSize, width, height) in sizedScreens {
+                let layout = Layout(config: config(for: spriteSize), mode: mode)
+                let size = spriteSize.points
                 let capacity = layout.capacity(screenWidth: width, screenHeight: height)
                 let records = (0..<capacity).map { make(id: "s\($0)", startedAt: $0) }
                 let placements = layout.place(records, screenWidth: width, screenHeight: height)
@@ -202,6 +215,15 @@ private func runUniversalModeTests(_ h: Harness) {
         }
         h.equal(DisplayMode.allCases.filter(\.travels).count, 4, "four marquee modes")
         h.equal(DisplayMode.allCases.filter(\.isCluster).count, 4, "four cluster modes")
+
+        h.equal(SpriteSize.allCases.count, 3, "three sprite sizes")
+        h.equal(Set(SpriteSize.allCases.map(\.title)).count, 3, "size titles are distinct")
+        let points = SpriteSize.allCases.map(\.points)
+        h.equal(points, points.sorted(), "sizes are ordered small to large")
+        for size in SpriteSize.allCases {
+            h.equal(SpriteSize(rawValue: size.rawValue), size, "\(size) round-trips")
+            h.expect(size.points > 0, "\(size) has a positive size")
+        }
     }
 }
 

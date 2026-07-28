@@ -56,6 +56,21 @@ public struct Layout: Sendable {
             self.wanderRange = wanderRange
             self.clusterColumns = clusterColumns
         }
+
+        /// Geometry scaled to a sprite size.
+        ///
+        /// The app and the tests both go through this, so the arrangement that
+        /// ships cannot quietly differ from the one that was verified.
+        public static func standard(spriteSize: Double, bubbleInset: Double,
+                                    maxVisible: Int = 12) -> Config {
+            Config(maxVisible: maxVisible,
+                   spriteSize: spriteSize,
+                   minGap: (spriteSize * 0.22).rounded(),
+                   edgeInset: 10,
+                   bubbleInset: bubbleInset,
+                   margin: 24,
+                   wanderRange: (spriteSize * 0.36).rounded())
+        }
     }
 
     public let config: Config

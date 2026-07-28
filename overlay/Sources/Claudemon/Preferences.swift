@@ -7,9 +7,22 @@ import ClaudemonCore
 /// alongside everything else Claudemon writes, and so `claudemon doctor` can
 /// report it without talking to the app.
 struct Preferences: Codable, Equatable {
+    // Decoding is lenient so a config written by an older build, or hand-edited
+    // with one key missing, still loads instead of resetting everything.
     var mode: DisplayMode = .default
+    var size: SpriteSize = .default
 
     static let filename = "config.json"
+
+    enum CodingKeys: String, CodingKey { case mode, size }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = (try? c.decodeIfPresent(DisplayMode.self, forKey: .mode)) as? DisplayMode ?? .default
+        size = (try? c.decodeIfPresent(SpriteSize.self, forKey: .size)) as? SpriteSize ?? .default
+    }
 
     static func url() -> URL {
         Paths.home().appendingPathComponent(filename)

@@ -7,13 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The layout reasons about the sprite; the window around it is bigger.
     /// Reserving the bubble zone keeps sprites and their bubbles clear of the
     /// menu bar and screen edges.
-    private static let layoutConfig = Layout.Config(
-        spriteSize: SpriteView.spriteSize,
-        edgeInset: 10,
-        bubbleInset: SpriteView.spriteTopInset + 10)
-
     private var preferences = Preferences.load()
-    private var layout = Layout(config: AppDelegate.layoutConfig, mode: Preferences.load().mode)
+    private var metrics: SpriteMetrics
+    private var layout: Layout
+
+    private static func layoutConfig(for metrics: SpriteMetrics) -> Layout.Config {
+        .standard(spriteSize: Double(metrics.sprite),
+                  bubbleInset: Double(metrics.topInset) + 10)
+    }
 
     private var watcher: DirectoryWatcher?
     private var windows: [String: SpriteWindow] = [:]
@@ -31,10 +32,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let home = Paths.home()
         store = SessionStore(directory: home.appendingPathComponent("sessions"))
         cache = SpriteCache(directory: home.appendingPathComponent("sprites"))
+
+        let loaded = Preferences.load()
+        let metrics = SpriteMetrics(size: loaded.size)
+        self.metrics = metrics
+        self.layout = Layout(config: AppDelegate.layoutConfig(for: metrics), mode: loaded.mode)
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Diagnostics.log("launched mode=\(preferences.mode.rawValue) size=\(preferences.size.rawValue)")
         NSApp.setActivationPolicy(.accessory)
         setUpStatusItem()
 
@@ -95,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeWindow(record: SessionRecord, image: NSImage) -> SpriteWindow {
-        let window = SpriteWindow(record: record, image: image) { [weak self] id in
-            self?.handleClick(id)
+        let window = SpriteWindow(record: record, image: image, metrics: metrics) {
+            [weak self] id in self?.handleClick(id)
         }
         window.orderFrontRegardless()
         return window
@@ -104,13 +111,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleClick(_ sessionID: String) {
         guard let record = records[sessionID] else {
-            NSLog("claudemon: click on unknown session %@", sessionID)
+            Diagnostics.log("click on unknown session \(sessionID)")
             return
         }
         let focused = FocusTerminal.focus(record)
-        NSLog("claudemon: click %@ tty=%@ terminal=%@ focused=%@",
-              record.label, record.tty ?? "none", record.terminal ?? "none",
-              focused ? "yes" : "no")
+        Diagnostics.log("click label=\(record.label) pid=\(record.pid.map(String.init) ?? "none") "
+                        + "tty=\(record.tty ?? "none") backend=\(FocusTerminal.backendDescription) "
+                        + "focused=\(focused)")
         if !focused {
             windows[sessionID]?.shake()
         }
@@ -144,9 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The layout places the sprite; the window around it is larger, so
             // offset by the label strip below and the padding either side.
             window.setFrameOrigin(NSPoint(
-                x: screenFrame.minX + point.x - SpriteView.spriteSideInset
+                x: screenFrame.minX + point.x - window.metrics.sideInset
                     + window.shakeOffset(now: now),
-                y: screenFrame.minY + point.y - SpriteView.spriteBottomInset))
+                y: screenFrame.minY + point.y - window.metrics.bottomInset))
             window.tick(elapsed)
         }
     }
@@ -191,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
         menu.addItem(displayMenuItem())
+        menu.addItem(sizeMenuItem())
 
         let pause = NSMenuItem(title: isPaused ? "Resume" : "Pause",
                                action: #selector(togglePause), keyEquivalent: "")
@@ -232,16 +240,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let raw = sender.representedObject as? String,
               let mode = DisplayMode(rawValue: raw),
               mode != preferences.mode else { return }
-
         preferences.mode = mode
-        preferences.save()
-        layout = Layout(config: Self.layoutConfig, mode: mode)
+        applyPreferences()
+    }
 
-        // A new arrangement can have a different capacity, so rebuild from
-        // scratch rather than trying to migrate the existing windows.
+    @objc private func selectSize(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let size = SpriteSize(rawValue: raw),
+              size != preferences.size else { return }
+        preferences.size = size
+        applyPreferences()
+    }
+
+    private func applyPreferences() {
+        preferences.save()
+        metrics = SpriteMetrics(size: preferences.size)
+        layout = Layout(config: Self.layoutConfig(for: metrics), mode: preferences.mode)
+
+        // Both a new arrangement and a new sprite size change capacity and
+        // window geometry, so rebuild from scratch rather than migrating.
         for window in windows.values { window.orderOut(nil) }
         windows.removeAll()
         reload()
+    }
+
+    private func sizeMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        for size in SpriteSize.allCases.reversed() {
+            let entry = NSMenuItem(title: size.title, action: #selector(selectSize(_:)),
+                                   keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = size.rawValue
+            entry.state = size == preferences.size ? .on : .off
+            submenu.addItem(entry)
+        }
+        let item = NSMenuItem(title: "Size: \(preferences.size.title)",
+                              action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
     }
 
     @objc private func focusFromMenu(_ sender: NSMenuItem) {

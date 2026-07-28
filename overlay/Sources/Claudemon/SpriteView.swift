@@ -8,24 +8,7 @@ import ClaudemonCore
 /// identity and is always legible. Everything else here exists to make state
 /// readable from across a desk.
 final class SpriteView: NSView {
-    static let spriteSize: CGFloat = 72
-    static let labelHeight: CGFloat = 16
-    static let bubbleHeight: CGFloat = 22
-    static let totalSize = NSSize(width: 150,
-                                  height: spriteSize + labelHeight + bubbleHeight + 8)
-
-    /// Gap between the window's bottom edge and the sprite, occupied by the
-    /// label. The layout positions the sprite, so the window has to be dropped
-    /// by this much for the sprite to land where it was told to.
-    static let spriteBottomInset = labelHeight + 4
-
-    /// Gap between the top of the sprite and the top of the window, occupied by
-    /// the `!` bubble. Reserved so a sprite riding the top of its band does not
-    /// push its bubble off screen and over the menu bar.
-    static let spriteTopInset = totalSize.height - spriteBottomInset - spriteSize
-
-    /// Horizontal padding either side of the sprite, occupied by the label.
-    static let spriteSideInset = (totalSize.width - spriteSize) / 2
+    let metrics: SpriteMetrics
 
     private let imageView = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -33,12 +16,14 @@ final class SpriteView: NSView {
     private let sleepMark = NSTextField(labelWithString: "zZz")
 
     private var state: SessionState = .running
-    private var pulsePhase: CGFloat = 0
 
-    override var isFlipped: Bool { false }
+    /// Forwarded to the window. Declared here because the view is what the
+    /// event system hit-tests first.
+    var onClick: (() -> Void)?
 
-    init() {
-        super.init(frame: NSRect(origin: .zero, size: Self.totalSize))
+    init(metrics: SpriteMetrics) {
+        self.metrics = metrics
+        super.init(frame: NSRect(origin: .zero, size: metrics.total))
         wantsLayer = true
         setUpSprite()
         setUpLabel()
@@ -51,9 +36,8 @@ final class SpriteView: NSView {
     // MARK: subviews
 
     private func setUpSprite() {
-        let x = (Self.totalSize.width - Self.spriteSize) / 2
-        imageView.frame = NSRect(x: x, y: Self.labelHeight + 4,
-                                 width: Self.spriteSize, height: Self.spriteSize)
+        imageView.frame = NSRect(x: metrics.sideInset, y: metrics.bottomInset,
+                                 width: metrics.sprite, height: metrics.sprite)
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
         imageView.wantsLayer = true
@@ -65,9 +49,9 @@ final class SpriteView: NSView {
     }
 
     private func setUpLabel() {
-        label.frame = NSRect(x: 0, y: 0, width: Self.totalSize.width, height: Self.labelHeight)
+        label.frame = NSRect(x: 0, y: 0, width: metrics.total.width, height: metrics.labelHeight)
         label.alignment = .center
-        label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        label.font = .monospacedSystemFont(ofSize: metrics.fontSize, weight: .medium)
         label.textColor = .white
         label.drawsBackground = false
         label.wantsLayer = true
@@ -78,26 +62,27 @@ final class SpriteView: NSView {
     }
 
     private func setUpBubble() {
-        bubble.frame = NSRect(x: Self.totalSize.width / 2 + 18,
-                              y: Self.totalSize.height - Self.bubbleHeight,
-                              width: 24, height: Self.bubbleHeight)
+        let size = metrics.bubbleHeight
+        bubble.frame = NSRect(x: metrics.total.width / 2 + metrics.sprite * 0.25,
+                              y: metrics.total.height - size,
+                              width: size + 2, height: size)
         bubble.alignment = .center
-        bubble.font = .systemFont(ofSize: 14, weight: .heavy)
+        bubble.font = .systemFont(ofSize: metrics.fontSize * 1.4, weight: .heavy)
         bubble.textColor = .white
         bubble.drawsBackground = false
         bubble.wantsLayer = true
         bubble.layer?.backgroundColor = NSColor.systemOrange.cgColor
-        bubble.layer?.cornerRadius = 8
+        bubble.layer?.cornerRadius = size / 2.6
         bubble.isHidden = true
         addSubview(bubble)
     }
 
     private func setUpSleepMark() {
-        sleepMark.frame = NSRect(x: Self.totalSize.width / 2 + 16,
-                                 y: Self.totalSize.height - Self.bubbleHeight,
-                                 width: 40, height: Self.bubbleHeight)
+        sleepMark.frame = NSRect(x: metrics.total.width / 2 + metrics.sprite * 0.22,
+                                 y: metrics.total.height - metrics.bubbleHeight,
+                                 width: metrics.sprite * 0.7, height: metrics.bubbleHeight)
         sleepMark.alignment = .left
-        sleepMark.font = .systemFont(ofSize: 13, weight: .semibold)
+        sleepMark.font = .systemFont(ofSize: metrics.fontSize * 1.3, weight: .semibold)
         sleepMark.textColor = NSColor.white.withAlphaComponent(0.75)
         sleepMark.drawsBackground = false
         sleepMark.isHidden = true
@@ -125,7 +110,9 @@ final class SpriteView: NSView {
             label.alphaValue = 1.0
             bubble.isHidden = false
             sleepMark.isHidden = true
-            applyAttentionGlow()
+            imageView.layer?.shadowColor = NSColor.systemOrange.cgColor
+            imageView.layer?.shadowRadius = 12
+            imageView.layer?.shadowOffset = .zero
 
         case .done:
             alphaValue = 0.6
@@ -136,24 +123,21 @@ final class SpriteView: NSView {
         }
     }
 
-    private func applyAttentionGlow() {
-        guard let layer = imageView.layer else { return }
-        layer.shadowColor = NSColor.systemOrange.cgColor
-        layer.shadowRadius = 12
-        layer.shadowOffset = .zero
-    }
-
-    /// Advances the per-frame effects. Driven by the app's animation timer so
-    /// every sprite shares one clock instead of each running its own.
+    /// Advances per-frame effects. Driven by the app's shared animation timer so
+    /// every sprite runs off one clock instead of each keeping its own.
     func tick(_ elapsed: TimeInterval) {
         guard state == .attention else { return }
-        pulsePhase = CGFloat(elapsed * 2.5)
-        imageView.layer?.shadowOpacity = Float(0.35 + 0.4 * abs(sin(pulsePhase)))
-        sleepMark.alphaValue = 1
+        imageView.layer?.shadowOpacity = Float(0.35 + 0.4 * abs(sin(elapsed * 2.5)))
     }
 
-    /// A no-op click target so the whole card is clickable, not just the pixels.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(convert(point, from: superview)) ? self : nil
+    // MARK: events
+
+    /// The overlay is an accessory app that is never frontmost, so every click
+    /// on it is a "first mouse" click. Without this, AppKit swallows the click
+    /// as an app-activation click and `mouseDown` is never called at all.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
     }
 }
