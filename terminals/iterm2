@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# iTerm2 — https://iterm2.com
+#
+# iTerm2 exposes `tty` per session in its AppleScript dictionary.
+set -uo pipefail
+
+case "${1:-}" in
+  detect)
+    [ -d /Applications/iTerm.app ] && pgrep -x iTerm2 >/dev/null 2>&1
+    ;;
+
+  focus)
+    tty="${3:-none}"
+    [ "$tty" = "none" ] || [ -z "$tty" ] && exit 1
+
+    osascript - "$tty" <<'APPLESCRIPT' >/dev/null 2>&1 || exit 1
+on run argv
+  set wanted to item 1 of argv
+  tell application "iTerm2"
+    repeat with w in windows
+      repeat with t in tabs of w
+        repeat with s in sessions of t
+          try
+            if (tty of s) is wanted then
+              select w
+              select t
+              select s
+              activate
+              return "ok"
+            end if
+          end try
+        end repeat
+      end repeat
+    end repeat
+  end tell
+  error "no session" number 1
+end run
+APPLESCRIPT
+    ;;
+
+  *) exit 2 ;;
+esac

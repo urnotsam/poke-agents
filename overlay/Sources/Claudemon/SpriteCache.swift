@@ -15,6 +15,10 @@ final class SpriteCache {
     }
 
     func image(for record: SessionRecord) -> NSImage {
+        // Rejected by SessionRecord's decoder; draw the Poke Ball rather than
+        // building a path from it.
+        guard SessionRecord.isValidSpecies(record.species) else { return placeholder }
+
         let filename = SpriteNaming.filename(for: record)
         if let cached = images[filename] { return cached }
 

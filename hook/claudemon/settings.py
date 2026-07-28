@@ -7,6 +7,7 @@ find exactly them, and refuses to act on a file it cannot parse.
 
 import json
 import os
+import shlex
 import shutil
 import time
 from typing import List, Optional
@@ -89,11 +90,18 @@ def is_installed(path: str) -> bool:
 
 
 def _command(hook_path: str, python: Optional[str]) -> str:
-    return "%s %s" % (python or "/usr/bin/env python3", _quote(hook_path))
+    """Compose the hook command line.
 
-
-def _quote(path: str) -> str:
-    return path if " " not in path else '"%s"' % path
+    Claude Code runs hook commands through a shell, and this lands in a file
+    that executes on every event of every session, so both halves are quoted
+    properly rather than by a space-detecting heuristic. `--python` in
+    particular is raw user input.
+    """
+    interpreter = python or "/usr/bin/env python3"
+    # An interpreter may legitimately be several words ("/usr/bin/env python3"),
+    # so quote each word rather than the whole string.
+    quoted = " ".join(shlex.quote(part) for part in shlex.split(interpreter))
+    return "%s %s" % (quoted, shlex.quote(hook_path))
 
 
 def _group(event: str, command: str) -> dict:
@@ -136,7 +144,19 @@ def _save(path: str, data: dict) -> None:
 
 
 def _backup(path: str) -> None:
+    """Copy the settings file aside before mutating it.
+
+    Timestamps are second-granular, so two runs in the same second would
+    otherwise silently overwrite the earlier backup — losing the copy taken
+    before the first change, which is the one worth keeping.
+    """
     if not os.path.exists(path):
         return
+
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(path, "%s.backup-%s" % (path, stamp))
+    target = "%s.backup-%s" % (path, stamp)
+    suffix = 1
+    while os.path.exists(target):
+        target = "%s.backup-%s.%d" % (path, stamp, suffix)
+        suffix += 1
+    shutil.copy2(path, target)

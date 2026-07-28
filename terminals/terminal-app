@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Terminal.app — the macOS built-in.
+#
+# Terminal exposes `tty` as a per-tab property, so a session's tty identifies
+# its tab exactly.
+set -uo pipefail
+
+case "${1:-}" in
+  detect)
+    [ -d /System/Applications/Utilities/Terminal.app ] || [ -d /Applications/Utilities/Terminal.app ]
+    ;;
+
+  focus)
+    tty="${3:-none}"
+    [ "$tty" = "none" ] || [ -z "$tty" ] && exit 1
+
+    # The tty is read from a JSON file, so it is passed as an argument rather
+    # than interpolated into the script text.
+    osascript - "$tty" <<'APPLESCRIPT' >/dev/null 2>&1 || exit 1
+on run argv
+  set wanted to item 1 of argv
+  tell application "Terminal"
+    set matched to false
+    repeat with w in windows
+      repeat with t in tabs of w
+        try
+          if (tty of t) is wanted then
+            set selected of t to true
+            set index of w to 1
+            set matched to true
+            exit repeat
+          end if
+        end try
+      end repeat
+      if matched then exit repeat
+    end repeat
+    if matched then
+      activate
+      return "ok"
+    end if
+  end tell
+  error "no tab" number 1
+end run
+APPLESCRIPT
+    ;;
+
+  *) exit 2 ;;
+esac

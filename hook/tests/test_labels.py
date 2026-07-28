@@ -9,31 +9,31 @@ from claudemon import labels
 class TestFormatLabel(unittest.TestCase):
     def test_display_name_wins_over_everything(self):
         got = labels.format_label(
-            display_name="my agent", repo="zeno-api", branch="feat/x",
-            is_worktree=True, cwd_basename="nda-agent",
+            display_name="my agent", repo="widgets-api", branch="feat/x",
+            is_worktree=True, cwd_basename="worker",
         )
         self.assertEqual(got, "my agent")
 
     def test_plain_repo_uses_repo_name(self):
         got = labels.format_label(
-            display_name=None, repo="zeno-api", branch="main",
-            is_worktree=False, cwd_basename="zeno-api",
+            display_name=None, repo="widgets-api", branch="main",
+            is_worktree=False, cwd_basename="widgets-api",
         )
-        self.assertEqual(got, "zeno-api")
+        self.assertEqual(got, "widgets-api")
 
     def test_worktree_appends_branch(self):
         got = labels.format_label(
-            display_name=None, repo="paradox", branch="nda-real-skill",
-            is_worktree=True, cwd_basename="nda-agent",
+            display_name=None, repo="acme", branch="feature-branch",
+            is_worktree=True, cwd_basename="worker",
         )
-        self.assertEqual(got, "paradox@nda-real-skill")
+        self.assertEqual(got, "acme@feature-branch")
 
     def test_worktree_without_branch_falls_back_to_directory(self):
         got = labels.format_label(
-            display_name=None, repo="paradox", branch=None,
-            is_worktree=True, cwd_basename="nda-agent",
+            display_name=None, repo="acme", branch=None,
+            is_worktree=True, cwd_basename="worker",
         )
-        self.assertEqual(got, "paradox@nda-agent")
+        self.assertEqual(got, "acme@worker")
 
     def test_non_git_directory_uses_basename(self):
         got = labels.format_label(
@@ -44,7 +44,7 @@ class TestFormatLabel(unittest.TestCase):
 
     def test_truncates_to_max_length_with_ellipsis(self):
         got = labels.format_label(
-            display_name=None, repo="paradoxmachines-zeno", branch="data-pipelines-shared",
+            display_name=None, repo="acme-widgets-service", branch="shared-data-pipelines",
             is_worktree=True, cwd_basename="x",
         )
         self.assertLessEqual(len(got), labels.MAX_LEN)
@@ -60,10 +60,10 @@ class TestFormatLabel(unittest.TestCase):
 
     def test_blank_display_name_is_ignored(self):
         got = labels.format_label(
-            display_name="   ", repo="zeno-api", branch="main",
-            is_worktree=False, cwd_basename="zeno-api",
+            display_name="   ", repo="widgets-api", branch="main",
+            is_worktree=False, cwd_basename="widgets-api",
         )
-        self.assertEqual(got, "zeno-api")
+        self.assertEqual(got, "widgets-api")
 
     def test_empty_everything_yields_a_placeholder_not_a_crash(self):
         got = labels.format_label(
@@ -81,29 +81,29 @@ def _git(cwd, *args):
 class TestDeriveAgainstRealGit(unittest.TestCase):
     def test_plain_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
-            repo = os.path.join(tmp, "zeno-api")
+            repo = os.path.join(tmp, "widgets-api")
             os.makedirs(repo)
             _git(repo, "init", "-q", "-b", "main")
-            self.assertEqual(labels.derive(repo), "zeno-api")
+            self.assertEqual(labels.derive(repo), "widgets-api")
 
     def test_subdirectory_of_repo_still_reports_repo_name(self):
         with tempfile.TemporaryDirectory() as tmp:
-            repo = os.path.join(tmp, "zeno-api")
+            repo = os.path.join(tmp, "widgets-api")
             sub = os.path.join(repo, "src", "deep")
             os.makedirs(sub)
             _git(repo, "init", "-q", "-b", "main")
-            self.assertEqual(labels.derive(sub), "zeno-api")
+            self.assertEqual(labels.derive(sub), "widgets-api")
 
     def test_worktree_gets_branch_suffix(self):
         with tempfile.TemporaryDirectory() as tmp:
-            repo = os.path.join(tmp, "paradox")
+            repo = os.path.join(tmp, "acme")
             os.makedirs(repo)
             _git(repo, "init", "-q", "-b", "main")
             _git(repo, "-c", "user.email=t@t", "-c", "user.name=t",
                  "commit", "-q", "--allow-empty", "-m", "init")
-            wt = os.path.join(tmp, "wt-nda")
-            _git(repo, "worktree", "add", "-q", "-b", "nda-skill", wt)
-            self.assertEqual(labels.derive(wt), "paradox@nda-skill")
+            wt = os.path.join(tmp, "wt-hotfix")
+            _git(repo, "worktree", "add", "-q", "-b", "hotfix", wt)
+            self.assertEqual(labels.derive(wt), "acme@hotfix")
 
     def test_non_git_directory(self):
         with tempfile.TemporaryDirectory() as tmp:

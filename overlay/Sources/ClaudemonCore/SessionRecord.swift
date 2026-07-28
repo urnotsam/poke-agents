@@ -62,12 +62,22 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.lastTool = lastTool
     }
 
+    /// Showdown species ids are lowercase alphanumeric, nothing else.
+    public static func isValidSpecies(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 64
+            && value.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sessionID = try c.decode(String.self, forKey: .sessionID)
         label = try c.decode(String.self, forKey: .label)
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd) ?? ""
-        species = try c.decode(String.self, forKey: .species)
+        // Species becomes a filename in the sprite cache. Session files live in
+        // a user-writable directory, so anything that is not a plain Showdown id
+        // is dropped rather than allowed to build a path with ".." in it.
+        let declared = try c.decode(String.self, forKey: .species)
+        species = SessionRecord.isValidSpecies(declared) ? declared : ""
         shiny = try c.decodeIfPresent(Bool.self, forKey: .shiny) ?? false
 
         // An unrecognised state from a newer hook degrades to running rather

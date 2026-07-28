@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# WezTerm — https://wezfurlong.org/wezterm
+set -uo pipefail
+
+case "${1:-}" in
+  detect)
+    command -v wezterm >/dev/null 2>&1 && wezterm cli list >/dev/null 2>&1
+    ;;
+
+  focus)
+    tty="${3:-none}"
+    [ "$tty" = "none" ] || [ -z "$tty" ] && exit 1
+
+    pane=$(wezterm cli list --format json 2>/dev/null | TTY="$tty" python3 -c '
+import json, os, sys
+tty = os.environ["TTY"]
+try:
+    panes = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for pane in panes:
+    if pane.get("tty_name") == tty:
+        print(pane["pane_id"])
+        sys.exit(0)
+sys.exit(1)') || exit 1
+
+    wezterm cli activate-pane --pane-id "$pane" 2>/dev/null || exit 1
+    osascript -e 'tell application "WezTerm" to activate' >/dev/null 2>&1
+    ;;
+
+  *) exit 2 ;;
+esac

@@ -1,6 +1,8 @@
 import copy
 import json
 import os
+import shlex
+import subprocess
 import tempfile
 import unittest
 
@@ -96,6 +98,74 @@ class TestInstall(SettingsTestCase):
         settings.install(self.path, HOOK)
         entry = self.load()["hooks"]["Stop"][0]["hooks"][0]
         self.assertEqual(entry.get(settings.MARKER), True)
+
+
+class TestCommandQuoting(SettingsTestCase):
+    """The composed command lands in a file that a shell executes on every event
+    of every session, so both halves must be quoted, not merely space-checked."""
+
+    def test_path_with_spaces_is_quoted(self):
+        self.save({})
+        settings.install(self.path, "/opt/my hooks/claudemon_hook.py")
+        command = _commands_for(self.load(), "Stop")[0]
+        self.assertIn("'/opt/my hooks/claudemon_hook.py'", command)
+
+    def test_shell_metacharacters_in_path_stay_one_argument(self):
+        # The real property: a shell parsing this command must see the hostile
+        # path as a single argument, not as extra commands to run.
+        hostile = "/opt/x; touch /tmp/claudemon-pwned; #/hook.py"
+        self.save({})
+        settings.install(self.path, hostile)
+        command = _commands_for(self.load(), "Stop")[0]
+        self.assertEqual(shlex.split(command)[-1], hostile)
+
+    def test_metacharacters_in_python_argument_stay_arguments(self):
+        self.save({})
+        settings.install(self.path, HOOK, python="python3; rm -rf /tmp/x")
+        command = _commands_for(self.load(), "Stop")[0]
+        tokens = shlex.split(command)
+        self.assertNotIn("rm", tokens[:1])
+        self.assertEqual(tokens[-1], HOOK)
+        # No token is a bare shell operator.
+        self.assertNotIn(";", tokens)
+
+    def test_a_hostile_path_does_not_execute_when_the_shell_runs_it(self):
+        marker = os.path.join(self._tmp.name, "pwned")
+        self.save({})
+        settings.install(self.path, "/nonexistent; touch %s; true" % marker)
+        command = _commands_for(self.load(), "Stop")[0]
+        subprocess.run(["/bin/sh", "-c", command], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=15)
+        self.assertFalse(os.path.exists(marker),
+                         "the hook command executed an injected command")
+
+    def test_multiword_interpreter_still_works(self):
+        self.save({})
+        settings.install(self.path, HOOK, python="/usr/bin/env python3")
+        command = _commands_for(self.load(), "Stop")[0]
+        self.assertTrue(command.startswith("/usr/bin/env python3 "), command)
+
+    def test_plain_path_is_still_readable(self):
+        self.save({})
+        settings.install(self.path, "/opt/claudemon/hook.py")
+        self.assertIn("/opt/claudemon/hook.py", _commands_for(self.load(), "Stop")[0])
+
+
+class TestBackups(SettingsTestCase):
+    def test_repeated_installs_do_not_overwrite_a_backup(self):
+        self.save({"model": "opus"})
+        settings.install(self.path, HOOK)
+        settings.install(self.path, HOOK)
+        settings.uninstall(self.path)
+        backups = [n for n in os.listdir(self._tmp.name) if ".backup" in n]
+        self.assertEqual(len(backups), 3, "a backup was silently overwritten")
+
+    def test_first_backup_preserves_the_original(self):
+        self.save({"model": "opus"})
+        settings.install(self.path, HOOK)
+        backups = sorted(n for n in os.listdir(self._tmp.name) if ".backup" in n)
+        with open(os.path.join(self._tmp.name, backups[0])) as fh:
+            self.assertEqual(json.load(fh), {"model": "opus"})
 
 
 class TestUninstall(SettingsTestCase):

@@ -41,7 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Diagnostics.log("launched mode=\(preferences.mode.rawValue) size=\(preferences.size.rawValue)")
+        Diagnostics.log("launched mode=\(preferences.mode.rawValue) "
+                        + "size=\(preferences.size.rawValue) "
+                        + "adapters=\(TerminalAdapters.detected(preferred: preferences.terminals))")
         NSApp.setActivationPolicy(.accessory)
         setUpStatusItem()
 
@@ -116,12 +118,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Diagnostics.log("click on unknown session \(sessionID)")
             return
         }
-        let focused = FocusTerminal.focus(record)
-        Diagnostics.log("click label=\(record.label) pid=\(record.pid.map(String.init) ?? "none") "
-                        + "tty=\(record.tty ?? "none") backend=\(FocusTerminal.backendDescription) "
-                        + "focused=\(focused)")
-        if !focused {
-            windows[sessionID]?.shake()
+        // Focusing spawns subprocesses and may run AppleScript. On the main
+        // thread that would freeze the overlay, animation included, for as long
+        // as the adapter takes.
+        TerminalAdapters.focusInBackground(record, preferred: preferences.terminals) {
+            [weak self] adapter in
+            Diagnostics.log("click label=\(record.label) "
+                            + "pid=\(record.pid.map(String.init) ?? "none") "
+                            + "tty=\(record.tty ?? "none") "
+                            + "adapter=\(adapter ?? "none")")
+            if adapter == nil {
+                self?.windows[sessionID]?.shake()
+            }
         }
     }
 

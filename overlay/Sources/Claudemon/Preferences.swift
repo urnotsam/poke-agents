@@ -12,9 +12,14 @@ struct Preferences: Codable, Equatable {
     var mode: DisplayMode = .default
     var size: SpriteSize = .default
 
+    /// Terminal adapters to try first, by filename. Anything not listed is
+    /// tried afterwards in alphabetical order, so dropping a new adapter into
+    /// the directory works without also editing this.
+    var terminals: [String] = []
+
     static let filename = "config.json"
 
-    enum CodingKeys: String, CodingKey { case mode, size }
+    enum CodingKeys: String, CodingKey { case mode, size, terminals }
 
     init() {}
 
@@ -24,6 +29,7 @@ struct Preferences: Codable, Equatable {
         // recognise", per field, so one bad key cannot reset the other.
         mode = (try? c.decode(DisplayMode.self, forKey: .mode)) ?? .default
         size = (try? c.decode(SpriteSize.self, forKey: .size)) ?? .default
+        terminals = (try? c.decode([String].self, forKey: .terminals)) ?? []
     }
 
     static func url() -> URL {

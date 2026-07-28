@@ -6,7 +6,9 @@
     claudemon doctor       report what is and is not working
     claudemon ls           list live session records
     claudemon fetch        download and cache sprites
-    claudemon adopt        show the real sessions herdr already knows about
+    claudemon adopt        show sessions your terminal already knows about
+    claudemon terminals    list terminal adapters and what they support
+    claudemon prune        delete session records whose process is gone
     claudemon simulate     write fake sessions so the overlay can be exercised
 """
 
@@ -18,15 +20,18 @@ import signal
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
-from claudemon import events, labels, paths, process, settings, species, sprites, state  # noqa: E402
+from claudemon import (atomicio, events, labels, paths, process, settings, species,
+                       sprites, state, terminals)  # noqa: E402
 
-HOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "hook", "claudemon_hook.py")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HOOK_PATH = os.path.join(REPO_ROOT, "hook", "claudemon_hook.py")
+BUILTIN_TERMINALS = os.path.join(REPO_ROOT, "terminals")
 
 FETCH_TIMEOUT = 20
 
@@ -43,8 +48,55 @@ def cmd_install(args):
     print("Installed Claudemon hooks into %s" % path)
     print("  events: %s" % ", ".join(settings.EVENTS))
     print("  hook:   %s" % HOOK_PATH)
+
+    installed, skipped = _install_terminals(force=args.force_terminals)
+    if installed:
+        print("  adapters installed: %s" % ", ".join(installed))
+    if skipped:
+        print("  adapters left alone (yours): %s" % ", ".join(skipped))
+
+    detected = [a.name for a in terminals.detected(_preferred_terminals())]
+    print("  detected terminals: %s" % (", ".join(detected) or "none"))
+    if not detected:
+        print("\n  No adapter recognised your terminal. Clicking a sprite will do")
+        print("  nothing until you add one — see terminals/README.md, it is short.")
+
     print("\nExisting sessions won't have sprites until they fire their next event.")
+    print("Run `claudemon adopt --watch` to see them now.")
     return 0
+
+
+def _install_terminals(force=False):
+    """Copy the built-in adapters into place.
+
+    Never overwrites an existing file: a user who edited an adapter, or wrote
+    their own with a built-in's name, keeps it across upgrades.
+    """
+    import shutil
+
+    target = terminals.directory()
+    try:
+        os.makedirs(target, exist_ok=True)
+        names = sorted(os.listdir(BUILTIN_TERMINALS))
+    except OSError:
+        return [], []
+
+    installed, skipped = [], []
+    for name in names:
+        source = os.path.join(BUILTIN_TERMINALS, name)
+        if name.endswith(".md") or not os.path.isfile(source):
+            continue
+        destination = os.path.join(target, name)
+        if os.path.exists(destination) and not force:
+            skipped.append(name)
+            continue
+        try:
+            shutil.copy2(source, destination)
+            os.chmod(destination, 0o755)
+            installed.append(name)
+        except OSError:
+            continue
+    return installed, skipped
 
 
 def cmd_uninstall(args):
@@ -189,11 +241,21 @@ def _fetch_one(job):
         req = urllib.request.Request(variant.url(name),
                                      headers={"User-Agent": sprites.USER_AGENT})
         with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as response:
-            body = response.read()
-        tmp = dest + ".tmp"
-        with open(tmp, "wb") as fh:
-            fh.write(body)
-        os.replace(tmp, dest)
+            # urllib follows redirects, including off-host ones. Only bytes from
+            # the expected host get written to the cache.
+            host = urllib.parse.urlparse(response.geturl()).hostname
+            if host != sprites.HOST:
+                return variant.filename(name), "redirected to %s" % host
+            # Read one byte past the cap so an oversized body is detected
+            # rather than silently truncated.
+            body = response.read(sprites.MAX_BYTES + 1)
+
+        if len(body) > sprites.MAX_BYTES:
+            return variant.filename(name), "larger than %d bytes" % sprites.MAX_BYTES
+        if not sprites.looks_like(variant.extension, body):
+            return variant.filename(name), "not a %s" % variant.extension
+
+        atomicio.write_bytes(dest, body)
         return variant.filename(name), None
     except (urllib.error.URLError, OSError) as exc:
         return variant.filename(name), exc
@@ -210,39 +272,31 @@ def _cached_species():
 
 # --------------------------------------------------------------------------- adopt
 
-# herdr's vocabulary mapped onto ours. "blocked" is the one that matters most:
-# it means the agent is waiting on the user, which is exactly "needs attention".
-_HERDR_STATES = {
-    "working": events.RUNNING,
-    "blocked": events.ATTENTION,
-    "idle": events.DONE,
-    "done": events.DONE,
-    "unknown": events.RUNNING,
-}
-
-
 def cmd_adopt(args):
-    """Publish sprites for the Claude sessions herdr already knows about.
+    """Publish sprites for sessions the terminal already knows about.
 
     The hook only learns about a session when that session next fires an event,
-    so a freshly installed hook shows nothing until you type something. This
-    reads herdr's live agent list instead, which means real sessions with real
-    labels appear immediately and without touching any settings file.
+    so a fresh install shows nothing until you type something. Any adapter that
+    implements `discover` can enumerate its sessions instead, which means real
+    sessions appear immediately and without touching any settings file.
     """
-    if not _herdr_path():
-        return _fail("herdr not found; adopt needs it to enumerate sessions")
+    adapters = terminals.discovering(_preferred_terminals())
+    if not adapters:
+        return _fail("no terminal adapter supports discovery; "
+                     "see terminals/README.md to add one for your terminal")
+
+    print("Discovering via: %s" % ", ".join(a.name for a in adapters))
 
     if not args.watch:
-        count = _adopt_once()
-        print("Adopted %d session(s)." % count)
+        print("Adopted %d session(s)." % len(_adopt_once(adapters)))
         return 0
 
-    print("Watching herdr every %.1fs. Ctrl-C to stop." % args.interval)
+    print("Refreshing every %.1fs. Ctrl-C to stop." % args.interval)
     stop = _install_stop_flag()
     adopted = set()
     try:
         while not stop["now"]:
-            adopted |= set(_adopt_once(return_ids=True) or [])
+            adopted |= set(_adopt_once(adapters))
             for _ in range(int(max(1, args.interval / 0.2))):
                 if stop["now"]:
                     break
@@ -257,68 +311,119 @@ def cmd_adopt(args):
     return 0
 
 
-def _adopt_once(return_ids=False):
+def _adopt_once(adapters):
     directory = paths.sessions_dir()
-    result = _herdr_json(["agent", "list"]) or {}
-    agents = result.get("agents", [])
-
     now = int(time.time())
-    # Read the directory once and track assignments as we go; re-reading it per
-    # new agent turned a poll into N full directory scans.
+
+    # Anything the adapters no longer report, or whose process died, goes away.
+    state.prune(directory, now)
     taken = {r.species for r in state.read_all(directory)}
+
     ids = []
-    for agent in agents:
-        pane = agent.get("pane_id")
-        if not pane:
-            continue
+    for adapter in adapters:
+        for found in adapter.discover():
+            pid = found.get("pid")
+            if not isinstance(pid, int) or pid <= 0:
+                continue
 
-        pid = _pane_pid(pane)
-        if pid is None:
-            continue
+            session_id = "adopted-%s-%d" % (adapter.name, pid)
+            ids.append(session_id)
 
-        session_id = "herdr-" + pane.replace(":", "-")
-        ids.append(session_id)
+            existing = state.read(directory, session_id)
+            if existing is None:
+                pick = species.assign(session_id, taken=taken)
+                started, name, shiny = now, pick.name, pick.shiny
+            else:
+                started, name, shiny = (existing.started_at, existing.species,
+                                        existing.shiny)
+            taken.add(name)
 
-        existing = state.read(directory, session_id)
-        if existing is None:
-            pick = species.assign(session_id, taken=taken)
-            started, name, shiny = now, pick.name, pick.shiny
-        else:
-            started, name, shiny = existing.started_at, existing.species, existing.shiny
-        taken.add(name)
-
-        state.write(directory, state.SessionRecord(
-            session_id=session_id,
-            label=_adopt_label(agent),
-            cwd=agent.get("cwd") or "",
-            species=name,
-            shiny=shiny,
-            state=_HERDR_STATES.get(agent.get("agent_status"), events.RUNNING),
-            pid=pid,
-            tty=None,
-            terminal="herdr",
-            started_at=started,
-            updated_at=now,
-            last_tool=None,
-        ))
-
-    return ids if return_ids else len(ids)
+            found_state = found.get("state")
+            state.write(directory, state.SessionRecord(
+                session_id=session_id,
+                label=_adopt_label(found),
+                cwd=found.get("cwd") or "",
+                species=name,
+                shiny=shiny,
+                state=found_state if found_state in events.STATES else events.RUNNING,
+                pid=pid,
+                tty=found.get("tty"),
+                terminal=adapter.name,
+                started_at=started,
+                updated_at=now,
+                last_tool=None,
+            ))
+    return ids
 
 
-def _adopt_label(agent):
-    """Prefer what the session is actually doing over where it lives."""
-    title = (agent.get("terminal_title_stripped") or "").strip()
+def _adopt_label(found):
+    """Prefer what the session is doing over where it lives."""
+    title = (found.get("label") or "").strip()
     if title:
         return labels.format_label(display_name=title, repo=None, branch=None,
                                    is_worktree=False, cwd_basename="")
-    return labels.derive(agent.get("cwd") or "")
+    return labels.derive(found.get("cwd") or "")
 
 
-def _herdr_path():
-    for path in ("/opt/homebrew/bin/herdr", "/usr/local/bin/herdr"):
-        if os.path.exists(path):
-            return path
+# --------------------------------------------------------------------------- terminals
+
+def cmd_terminals(args):
+    adapters = terminals.available(_preferred_terminals())
+    if not adapters:
+        return _fail("no adapters in %s; run `claudemon install`"
+                     % terminals.directory())
+
+    print("%-16s %-10s %-10s %s" % ("ADAPTER", "DETECTED", "DISCOVERS", "PATH"))
+    for adapter in adapters:
+        print("%-16s %-10s %-10s %s" % (
+            adapter.name,
+            "yes" if adapter.detects() else "no",
+            "yes" if adapter.can_discover() else "no",
+            adapter.path,
+        ))
+
+    if args.focus:
+        print()
+        record = _record_for_pid(args.focus)
+        if record is None:
+            print("No session recorded for pid %d; trying pid/tty directly."
+                  % args.focus)
+        for adapter in adapters:
+            if not adapter.detects():
+                continue
+            ok = adapter.focus(args.focus, record.tty if record else None)
+            print("  %-16s focus -> %s" % (adapter.name, "ok" if ok else "declined"))
+            if ok:
+                break
+    return 0
+
+
+def _record_for_pid(pid):
+    for record in state.read_all(paths.sessions_dir()):
+        if record.pid == pid:
+            return record
     return None
+
+
+def _preferred_terminals():
+    import json
+    path = os.path.join(paths.home(), "config.json")
+    try:
+        with open(path) as fh:
+            names = json.load(fh).get("terminals", [])
+    except (OSError, ValueError):
+        return []
+    return [n for n in names if isinstance(n, str)]
+
+
+# --------------------------------------------------------------------------- prune
+
+def cmd_prune(args):
+    removed = state.prune(paths.sessions_dir())
+    print("Removed %d stale session(s)." % len(removed))
+    for sid in removed:
+        print("  %s" % sid)
+    return 0
 
 
 # --------------------------------------------------------------------------- simulate
@@ -407,16 +512,18 @@ def _current_tty():
 
 
 def _focusable_pids():
-    """Claude pids that something can actually focus.
+    """Claude pids something can actually focus.
 
-    Prefers the pids herdr reports for its panes, since that is what the overlay
-    matches against. Falls back to this invocation's own claude ancestor.
+    Cycling simulated sprites across several real sessions is the only way this
+    tests anything: pointing them all at one pid makes every sprite focus the
+    same place no matter whether the code is right.
     """
     pids = []
-    for pane in _herdr(["pane", "list"], "panes", "pane_id"):
-        pid = _pane_pid(pane)
-        if pid is not None:
-            pids.append(pid)
+    for adapter in terminals.discovering(_preferred_terminals()):
+        for found in adapter.discover():
+            pid = found.get("pid")
+            if isinstance(pid, int) and pid > 0 and pid not in pids:
+                pids.append(pid)
 
     if not pids:
         info = process.find_claude(os.getpid())
@@ -445,26 +552,10 @@ def _herdr_json(args):
         return None
 
 
-def _pane_pid(pane):
-    """The claude pid running in a herdr pane, or None.
-
-    This is the key the overlay matches sessions against, so it is resolved the
-    same way everywhere rather than re-reaching into the JSON per call site.
-    """
-    info = _herdr_json(["pane", "process-info", "--pane", pane]) or {}
-    pid = info.get("process_info", {}).get("foreground_process_group_id")
-    return pid if isinstance(pid, int) and pid > 0 else None
-
-
-def _herdr(args, collection, key):
-    result = _herdr_json(args) or {}
-    return [item.get(key) for item in result.get(collection, []) if item.get(key)]
-
-
 _FAKE_LABELS = [
-    "zeno-api", "paradox@nda", "zeno-data-pipe", "internal-tools", "kaggle",
-    "weekly-reports", "dbt", "zeno-agent-evals", "point41-nda", "connector",
-    "claudemon", "paradox@redline",
+    "widgets-api", "widgets@hotfix", "billing-worker", "internal-tools",
+    "data-pipeline", "weekly-report", "search-index", "mobile-app",
+    "auth-service", "docs-site", "claudemon", "widgets@refactor",
 ]
 
 
@@ -520,6 +611,8 @@ def build_parser():
     p = sub.add_parser("install", help="wire hooks into settings.json")
     p.add_argument("--settings", help="settings file (default ~/.claude/settings.json)")
     p.add_argument("--python", help="python interpreter for the hook command")
+    p.add_argument("--force-terminals", action="store_true",
+                   help="overwrite terminal adapters with the bundled versions")
     p.set_defaults(func=cmd_install)
 
     p = sub.add_parser("uninstall", help="remove Claudemon's hook entries")
@@ -539,13 +632,21 @@ def build_parser():
     p.add_argument("--force", action="store_true", help="re-download cached sprites")
     p.set_defaults(func=cmd_fetch)
 
-    p = sub.add_parser("adopt", help="show the real sessions herdr already knows about")
+    p = sub.add_parser("adopt", help="show sessions your terminal already knows about")
     p.add_argument("--watch", action="store_true",
-                   help="keep refreshing so sprite states track herdr")
+                   help="keep refreshing so sprite states stay current")
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--cleanup", action="store_true",
                    help="remove adopted sessions when watching stops")
     p.set_defaults(func=cmd_adopt)
+
+    p = sub.add_parser("terminals", help="list terminal adapters and what they support")
+    p.add_argument("--focus", type=int, metavar="PID",
+                   help="attempt a real focus for this pid and report the result")
+    p.set_defaults(func=cmd_terminals)
+
+    p = sub.add_parser("prune", help="delete session records whose process is gone")
+    p.set_defaults(func=cmd_prune)
 
     p = sub.add_parser("simulate", help="write fake sessions for testing")
     p.add_argument("--count", type=int, default=6)

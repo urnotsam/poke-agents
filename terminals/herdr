@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# herdr — terminal workspace manager for AI coding agents.
+# https://github.com/steveyegge/herdr
+#
+# herdr runs sessions in panes inside a host terminal window, so focusing means
+# switching its pane AND raising the window that renders it.
+set -uo pipefail
+
+herdr_bin() {
+  for candidate in "${CLAUDEMON_HERDR:-}" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+  done
+  command -v herdr 2>/dev/null && return 0
+  return 1
+}
+
+HERDR=$(herdr_bin) || exit 1
+
+case "${1:-}" in
+  detect)
+    "$HERDR" agent list >/dev/null 2>&1
+    ;;
+
+  focus)
+    pid="${2:-}"
+    [ -z "$pid" ] && exit 1
+
+    # foreground_process_group_id is the claude pid, which is what the session
+    # record stores, so panes are matched exactly rather than guessed by cwd.
+    pane=$("$HERDR" pane list 2>/dev/null | HERDR="$HERDR" PID="$pid" python3 -c '
+import json, os, subprocess, sys
+herdr, pid = os.environ["HERDR"], int(os.environ["PID"])
+try:
+    panes = json.load(sys.stdin)["result"]["panes"]
+except Exception:
+    sys.exit(1)
+for pane in panes:
+    ident = pane.get("pane_id")
+    if not ident:
+        continue
+    try:
+        out = subprocess.run([herdr, "pane", "process-info", "--pane", ident],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=10)
+        group = json.loads(out.stdout)["result"]["process_info"]["foreground_process_group_id"]
+    except Exception:
+        continue
+    if group == pid:
+        print(ident)
+        sys.exit(0)
+sys.exit(1)') || exit 1
+
+    "$HERDR" agent focus "$pane" >/dev/null 2>&1 || exit 1
+
+    # Switching the pane only rearranges herdr's own UI. Raise the terminal
+    # window that draws it, or nothing visible happens when another app is
+    # frontmost.
+    host_tty=$(ps -eo tty=,args= | awk '
+      $1 !~ /^\?/ {
+        n = split($2, parts, "/")
+        if (parts[n] == "herdr" && index($0, " server") == 0) { print $1; exit }
+      }')
+    if [ -n "${host_tty:-}" ]; then
+      exec "$(dirname "$0")/terminal-app" focus "" "/dev/$host_tty"
+    fi
+    ;;
+
+  discover)
+    "$HERDR" agent list 2>/dev/null | HERDR="$HERDR" python3 -c '
+import json, os, subprocess, sys
+
+# herdr status vocabulary -> sprite state. "blocked" means waiting on the user,
+# which is exactly the case worth surfacing.
+STATES = {"working": "running", "blocked": "attention",
+          "idle": "done", "done": "done", "unknown": "running"}
+herdr = os.environ["HERDR"]
+try:
+    agents = json.load(sys.stdin)["result"]["agents"]
+except Exception:
+    sys.exit(1)
+
+for agent in agents:
+    pane = agent.get("pane_id")
+    if not pane:
+        continue
+    try:
+        out = subprocess.run([herdr, "pane", "process-info", "--pane", pane],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=10)
+        pid = json.loads(out.stdout)["result"]["process_info"]["foreground_process_group_id"]
+    except Exception:
+        continue
+    if not isinstance(pid, int) or pid <= 0:
+        continue
+    # The terminal title says what the session is working on, which identifies
+    # it far better than a repo name when several sessions share a repo.
+    print(json.dumps({
+        "pid": pid,
+        "label": (agent.get("terminal_title_stripped") or "").strip()
+                 or os.path.basename(agent.get("cwd") or ""),
+        "state": STATES.get(agent.get("agent_status"), "running"),
+        "cwd": agent.get("cwd") or "",
+    }))
+'
+    ;;
+
+  *) exit 2 ;;
+esac

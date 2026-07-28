@@ -93,6 +93,22 @@ def delete(directory: str, session_id: str) -> None:
     _unlink(path)
 
 
+def prune(directory: str, now: Optional[int] = None) -> List[str]:
+    """Delete records whose session is gone. Returns the ids removed.
+
+    SessionEnd covers the clean case, and the overlay stops *drawing* stale
+    records, but nothing removes the files. A process killed with SIGKILL —
+    including `claudemon simulate` — would otherwise leave records behind
+    permanently.
+    """
+    removed = []
+    for record in read_all(directory):
+        if is_stale(record, now):
+            delete(directory, record.session_id)
+            removed.append(record.session_id)
+    return removed
+
+
 def _load(path: str) -> Optional[SessionRecord]:
     try:
         with open(path) as fh:

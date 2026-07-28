@@ -12,9 +12,9 @@ import ClaudemonCore
 /// Draws one row per sprite size and one column per state.
 enum RenderPreview {
     private static let samples: [(SessionState, String, String)] = [
-        (.running, "zeno-api", "charmander"),
-        (.attention, "paradox@nda-skill", "psyduck"),
-        (.done, "dbt", "snorlax"),
+        (.running, "widgets-api", "charmander"),
+        (.attention, "widgets@hotfix", "psyduck"),
+        (.done, "data-pipeline", "snorlax"),
     ]
 
     static func run(to path: String) -> Never {

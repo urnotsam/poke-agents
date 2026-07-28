@@ -17,7 +17,7 @@ class StateDirTestCase(unittest.TestCase):
 
     def record(self, **over):
         base = dict(
-            session_id="sid-1", label="zeno-api", cwd="/tmp/zeno-api",
+            session_id="sid-1", label="widgets-api", cwd="/tmp/widgets-api",
             species="charizard", shiny=False, state=state.RUNNING,
             pid=os.getpid(), tty="/dev/ttys003", terminal="Apple_Terminal",
             started_at=1785271000, updated_at=1785271000, last_tool=None,
@@ -130,6 +130,46 @@ class TestDelete(StateDirTestCase):
 
     def test_delete_rejects_hostile_session_id(self):
         state.delete(self.dir, "../../etc/passwd")
+
+
+class TestPrune(StateDirTestCase):
+    """Nothing else ever removes a session file. Without pruning, a process
+    killed with SIGKILL leaves records behind permanently."""
+
+    def test_removes_records_whose_process_is_gone(self):
+        state.write(self.dir, self.record(session_id="ghost", pid=4_000_000))
+        removed = state.prune(self.dir)
+        self.assertEqual(removed, ["ghost"])
+        self.assertEqual(state.read_all(self.dir), [])
+
+    def test_keeps_live_records(self):
+        state.write(self.dir, self.record(session_id="alive",
+                                          updated_at=int(time.time())))
+        self.assertEqual(state.prune(self.dir), [])
+        self.assertEqual(len(state.read_all(self.dir)), 1)
+
+    def test_removes_only_the_dead(self):
+        state.write(self.dir, self.record(session_id="alive",
+                                          updated_at=int(time.time())))
+        state.write(self.dir, self.record(session_id="ghost", pid=4_000_000))
+        state.prune(self.dir)
+        self.assertEqual([r.session_id for r in state.read_all(self.dir)], ["alive"])
+
+    def test_removes_records_that_are_simply_too_old(self):
+        old = int(time.time()) - state.MAX_AGE_SECONDS - 1
+        state.write(self.dir, self.record(session_id="ancient", updated_at=old))
+        self.assertEqual(state.prune(self.dir), ["ancient"])
+
+    def test_empty_directory_is_fine(self):
+        self.assertEqual(state.prune(self.dir), [])
+
+    def test_missing_directory_is_fine(self):
+        self.assertEqual(state.prune(os.path.join(self.dir, "nope")), [])
+
+    def test_is_idempotent(self):
+        state.write(self.dir, self.record(session_id="ghost", pid=4_000_000))
+        state.prune(self.dir)
+        self.assertEqual(state.prune(self.dir), [])
 
 
 class TestLiveness(unittest.TestCase):

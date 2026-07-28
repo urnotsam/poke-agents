@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# tmux — focuses the pane, and raises the terminal displaying the attached
+# client. Works alongside whichever terminal actually hosts tmux.
+set -uo pipefail
+
+case "${1:-}" in
+  detect)
+    command -v tmux >/dev/null 2>&1 && tmux list-panes -a >/dev/null 2>&1
+    ;;
+
+  focus)
+    tty="${3:-none}"
+    [ "$tty" = "none" ] || [ -z "$tty" ] && exit 1
+
+    target=$(tmux list-panes -a -F '#{pane_tty} #{session_name}:#{window_index}.#{pane_index}' \
+             2>/dev/null | awk -v t="$tty" '$1 == t { print $2; exit }')
+    [ -z "${target:-}" ] && exit 1
+
+    tmux switch-client -t "${target%%.*}" 2>/dev/null \
+      || tmux select-window -t "${target%.*}" 2>/dev/null || exit 1
+    tmux select-pane -t "$target" 2>/dev/null || exit 1
+
+    # Raise whatever terminal the tmux client is attached to.
+    client_tty=$(tmux list-clients -F '#{client_tty}' 2>/dev/null | head -1)
+    if [ -n "${client_tty:-}" ]; then
+      "$(dirname "$0")/terminal-app" focus "" "$client_tty" 2>/dev/null || true
+    fi
+    ;;
+
+  discover)
+    # Panes whose running command is claude, so tmux users get sprites without
+    # waiting for each session to fire a hook event.
+    tmux list-panes -a -F '#{pane_pid} #{pane_current_command} #{pane_title}' 2>/dev/null \
+      | python3 -c '
+import json, sys
+for line in sys.stdin:
+    parts = line.split(None, 2)
+    if len(parts) < 2 or parts[1] != "claude":
+        continue
+    print(json.dumps({"pid": int(parts[0]),
+                      "label": (parts[2].strip() if len(parts) > 2 else "")}))
+'
+    ;;
+
+  *) exit 2 ;;
+esac

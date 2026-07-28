@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Ghostty — https://ghostty.org
+#
+# Ghostty has no scripting interface for selecting a specific tab yet, so this
+# raises the application and stops there. That is still better than nothing:
+# the session is usually the visible tab. Replace this adapter once Ghostty
+# gains per-tab addressing.
+set -uo pipefail
+
+case "${1:-}" in
+  detect)
+    [ -d /Applications/Ghostty.app ] && pgrep -x ghostty >/dev/null 2>&1
+    ;;
+
+  focus)
+    osascript -e 'tell application "Ghostty" to activate' >/dev/null 2>&1 || exit 1
+    ;;
+
+  *) exit 2 ;;
+esac
