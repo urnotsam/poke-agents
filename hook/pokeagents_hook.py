@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code hook entry point for Claudemon.
+"""Claude Code hook entry point for PokeAgents.
 
 Wire this into SessionStart, UserPromptSubmit, PreToolUse, Notification, Stop,
 and SessionEnd. It updates one JSON file per session and gets out of the way.
@@ -11,7 +11,7 @@ Claude Code session:
   2. Never write to stdout. SessionStart stdout is injected into the session as
      context, so a stray print would silently pollute the conversation.
 
-Diagnostics go to ~/.claude/claudemon/hook.log. Set CLAUDEMON_DISABLE=1 to turn
+Diagnostics go to ~/.claude/poke-agents/hook.log. Set POKEAGENTS_DISABLE=1 to turn
 the whole thing off without uninstalling.
 """
 
@@ -24,7 +24,7 @@ MAX_LOG_BYTES = 256 * 1024
 def _log(message: str) -> None:
     """Best-effort diagnostics. Never raises, never touches stdout."""
     try:
-        from claudemon import paths
+        from pokeagents import paths
 
         path = paths.log_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -40,7 +40,7 @@ def main() -> int:
     try:
         import json
 
-        from claudemon import paths, process, runner
+        from pokeagents import paths, process, runner
 
         if paths.disabled():
             return 0
@@ -53,7 +53,7 @@ def main() -> int:
         runner.apply_event(paths.sessions_dir(), payload,
                            resolve_proc=lambda: process.find_claude(os.getpid()))
     except Exception as exc:  # noqa: BLE001 - a hook must never propagate
-        _log("claudemon hook error: %r" % (exc,))
+        _log("pokeagents hook error: %r" % (exc,))
     return 0
 
 

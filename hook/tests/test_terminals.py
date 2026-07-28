@@ -3,7 +3,7 @@ import stat
 import tempfile
 import unittest
 
-from claudemon import terminals
+from pokeagents import terminals
 
 
 class AdapterTestCase(unittest.TestCase):
@@ -11,10 +11,10 @@ class AdapterTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = os.path.join(self._tmp.name, "terminals")
         os.makedirs(self.dir)
-        os.environ["CLAUDEMON_HOME"] = self._tmp.name
+        os.environ["POKEAGENTS_HOME"] = self._tmp.name
 
     def tearDown(self):
-        os.environ.pop("CLAUDEMON_HOME", None)
+        os.environ.pop("POKEAGENTS_HOME", None)
         self._tmp.cleanup()
 
     def adapter(self, name, body, executable=True):
@@ -47,7 +47,7 @@ class TestDiscovery(AdapterTestCase):
         self.assertEqual(terminals.available(), [])
 
     def test_missing_directory_is_not_an_error(self):
-        os.environ["CLAUDEMON_HOME"] = "/no/such/place"
+        os.environ["POKEAGENTS_HOME"] = "/no/such/place"
         self.assertEqual(terminals.available(), [])
 
     def test_default_order_is_alphabetical(self):

@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 
-from claudemon import state
+from pokeagents import state
 
 
 class StateDirTestCase(unittest.TestCase):

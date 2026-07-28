@@ -22,9 +22,9 @@ SOFTWARE.
 
 ---
 
-This license covers the Claudemon source code only.
+This license covers the PokeAgents source code only.
 
-Claudemon does not bundle or distribute any Pokémon sprites. It downloads them
+PokeAgents does not bundle or distribute any Pokémon sprites. It downloads them
 at runtime from Pokémon Showdown into a local cache on your own machine.
 Pokémon and Pokémon character names are trademarks of Nintendo, Creatures Inc.,
 GAME FREAK Inc., and The Pokémon Company. This project is an unofficial fan

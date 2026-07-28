@@ -1,5 +1,5 @@
 import Foundation
-import ClaudemonCore
+import PokeAgentsCore
 
 let screenWidth = 1512.0
 let screenHeight = 982.0

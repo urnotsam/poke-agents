@@ -1,5 +1,5 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store: SessionStore
@@ -220,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
         menu.addItem(pause)
-        let quit = NSMenuItem(title: "Quit Claudemon", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit PokeAgents", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
@@ -319,10 +319,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum Paths {
     static func home() -> URL {
-        if let override = ProcessInfo.processInfo.environment["CLAUDEMON_HOME"], !override.isEmpty {
+        if let override = ProcessInfo.processInfo.environment["POKEAGENTS_HOME"], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/claudemon")
+            .appendingPathComponent(".claude/poke-agents")
     }
 }

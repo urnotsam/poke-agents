@@ -1,6 +1,6 @@
 """Terminal adapters.
 
-An adapter is any executable in `~/.claude/claudemon/terminals/` that answers
+An adapter is any executable in `~/.claude/poke-agents/terminals/` that answers
 subcommands through its exit code:
 
     <adapter> detect              exit 0 if usable on this machine right now
@@ -77,7 +77,7 @@ class Adapter:
 
     def _run(self, args: List[str], timeout: int):
         env = dict(os.environ)
-        env["CLAUDEMON_HOME"] = paths.home()
+        env["POKEAGENTS_HOME"] = paths.home()
         try:
             out = subprocess.run(
                 [self.path] + args, stdout=subprocess.PIPE,

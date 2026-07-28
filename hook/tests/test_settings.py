@@ -6,9 +6,9 @@ import subprocess
 import tempfile
 import unittest
 
-from claudemon import settings
+from pokeagents import settings
 
-HOOK = "/opt/claudemon/hook/claudemon_hook.py"
+HOOK = "/opt/pokeagents/hook/pokeagents_hook.py"
 
 
 class SettingsTestCase(unittest.TestCase):
@@ -68,7 +68,7 @@ class TestInstall(SettingsTestCase):
 
     def test_reinstall_updates_a_moved_hook_path(self):
         self.save({})
-        settings.install(self.path, "/old/path/claudemon_hook.py")
+        settings.install(self.path, "/old/path/pokeagents_hook.py")
         settings.install(self.path, HOOK)
         commands = _commands_for(self.load(), "Stop")
         self.assertTrue(any(HOOK in c for c in commands))
@@ -106,14 +106,14 @@ class TestCommandQuoting(SettingsTestCase):
 
     def test_path_with_spaces_is_quoted(self):
         self.save({})
-        settings.install(self.path, "/opt/my hooks/claudemon_hook.py")
+        settings.install(self.path, "/opt/my hooks/pokeagents_hook.py")
         command = _commands_for(self.load(), "Stop")[0]
-        self.assertIn("'/opt/my hooks/claudemon_hook.py'", command)
+        self.assertIn("'/opt/my hooks/pokeagents_hook.py'", command)
 
     def test_shell_metacharacters_in_path_stay_one_argument(self):
         # The real property: a shell parsing this command must see the hostile
         # path as a single argument, not as extra commands to run.
-        hostile = "/opt/x; touch /tmp/claudemon-pwned; #/hook.py"
+        hostile = "/opt/x; touch /tmp/pokeagents-pwned; #/hook.py"
         self.save({})
         settings.install(self.path, hostile)
         command = _commands_for(self.load(), "Stop")[0]
@@ -147,8 +147,8 @@ class TestCommandQuoting(SettingsTestCase):
 
     def test_plain_path_is_still_readable(self):
         self.save({})
-        settings.install(self.path, "/opt/claudemon/hook.py")
-        self.assertIn("/opt/claudemon/hook.py", _commands_for(self.load(), "Stop")[0])
+        settings.install(self.path, "/opt/pokeagents/hook.py")
+        self.assertIn("/opt/pokeagents/hook.py", _commands_for(self.load(), "Stop")[0])
 
 
 class TestBackups(SettingsTestCase):

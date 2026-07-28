@@ -13,7 +13,7 @@ from typing import List
 
 BASE = "https://play.pokemonshowdown.com/sprites"
 HOST = "play.pokemonshowdown.com"
-USER_AGENT = "claudemon/0.1 (personal desktop overlay)"
+USER_AGENT = "pokeagents/0.1 (personal desktop overlay)"
 
 # Sprites are small; the largest in the roster is well under 200KB. Capping the
 # read stops a redirect or a compromised CDN from filling the disk, and the

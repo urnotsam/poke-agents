@@ -1,5 +1,5 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// Pixel geometry for one sprite size.
 ///

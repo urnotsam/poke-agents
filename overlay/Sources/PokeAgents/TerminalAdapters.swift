@@ -1,9 +1,9 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// Focuses the terminal running a session, via user-extensible adapters.
 ///
-/// An adapter is any executable in `~/.claude/claudemon/terminals/`, in any
+/// An adapter is any executable in `~/.claude/poke-agents/terminals/`, in any
 /// language, answering two subcommands through its exit code:
 ///
 ///     <adapter> detect              -> 0 if usable on this machine right now
@@ -17,7 +17,7 @@ enum TerminalAdapters {
     private static let detectionLifetime: TimeInterval = 30
 
     private static var detectionCache: [String: (ok: Bool, at: Date)] = [:]
-    private static let cacheQueue = DispatchQueue(label: "dev.sam.claudemon.adapters")
+    private static let cacheQueue = DispatchQueue(label: "dev.urnotsam.pokeagents.adapters")
 
     static func directory() -> URL {
         Paths.home().appendingPathComponent("terminals")
@@ -114,10 +114,10 @@ enum TerminalAdapters {
 
     private static func sessionEnvironment(_ record: SessionRecord) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        environment["CLAUDEMON_HOME"] = Paths.home().path
+        environment["POKEAGENTS_HOME"] = Paths.home().path
         if let data = try? JSONEncoder().encode(record),
            let json = String(data: data, encoding: .utf8) {
-            environment["CLAUDEMON_SESSION_JSON"] = json
+            environment["POKEAGENTS_SESSION_JSON"] = json
         }
         return environment
     }

@@ -8,7 +8,7 @@ import Foundation
 /// something that can actually be checked.
 enum Diagnostics {
     private static let maxBytes = 256 * 1024
-    private static let queue = DispatchQueue(label: "dev.sam.claudemon.diagnostics")
+    private static let queue = DispatchQueue(label: "dev.urnotsam.pokeagents.diagnostics")
 
     // Building one of these is comparatively expensive, and logging happens on
     // every click.

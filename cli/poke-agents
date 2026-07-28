@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""claudemon — manage the desktop sprite overlay for Claude Code sessions.
+"""poke-agents — manage the desktop sprite overlay for Claude Code sessions.
 
-    claudemon install      wire the hooks into ~/.claude/settings.json
-    claudemon uninstall    remove them again
-    claudemon doctor       report what is and is not working
-    claudemon ls           list live session records
-    claudemon fetch        download and cache sprites
-    claudemon adopt        show sessions your terminal already knows about
-    claudemon terminals    list terminal adapters and what they support
-    claudemon prune        delete session records whose process is gone
-    claudemon simulate     write fake sessions so the overlay can be exercised
+    poke-agents install      wire the hooks into ~/.claude/settings.json
+    poke-agents uninstall    remove them again
+    poke-agents doctor       report what is and is not working
+    poke-agents ls           list live session records
+    poke-agents fetch        download and cache sprites
+    poke-agents adopt        show sessions your terminal already knows about
+    poke-agents terminals    list terminal adapters and what they support
+    poke-agents prune        delete session records whose process is gone
+    poke-agents simulate     write fake sessions so the overlay can be exercised
 """
 
 import argparse
@@ -26,11 +26,11 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
-from claudemon import (atomicio, events, labels, paths, process, settings, species,
+from pokeagents import (atomicio, events, labels, paths, process, settings, species,
                        sprites, state, terminals)  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK_PATH = os.path.join(REPO_ROOT, "hook", "claudemon_hook.py")
+HOOK_PATH = os.path.join(REPO_ROOT, "hook", "pokeagents_hook.py")
 BUILTIN_TERMINALS = os.path.join(REPO_ROOT, "terminals")
 
 FETCH_TIMEOUT = 20
@@ -45,7 +45,7 @@ def cmd_install(args):
     except settings.SettingsError as exc:
         return _fail(str(exc))
 
-    print("Installed Claudemon hooks into %s" % path)
+    print("Installed PokeAgents hooks into %s" % path)
     print("  events: %s" % ", ".join(settings.EVENTS))
     print("  hook:   %s" % HOOK_PATH)
 
@@ -62,7 +62,7 @@ def cmd_install(args):
         print("  nothing until you add one — see terminals/README.md, it is short.")
 
     print("\nExisting sessions won't have sprites until they fire their next event.")
-    print("Run `claudemon adopt --watch` to see them now.")
+    print("Run `poke-agents adopt --watch` to see them now.")
     return 0
 
 
@@ -105,7 +105,7 @@ def cmd_uninstall(args):
         settings.uninstall(path)
     except settings.SettingsError as exc:
         return _fail(str(exc))
-    print("Removed Claudemon hooks from %s" % path)
+    print("Removed PokeAgents hooks from %s" % path)
     return 0
 
 
@@ -128,17 +128,17 @@ def cmd_doctor(args):
     print("  %-22s %d species cached in %s" % ("sprites", len(cached), paths.sprites_dir()))
 
     running = _overlay_running()
-    _check("overlay running", running, "Claudemon.app")
+    _check("overlay running", running, "PokeAgents.app")
     print("  %-22s %s" % ("display mode", _display_mode()))
 
     if paths.disabled():
-        print("\n  CLAUDEMON_DISABLE is set — the hook is short-circuiting.")
+        print("\n  POKEAGENTS_DISABLE is set — the hook is short-circuiting.")
         ok = False
 
     if not installed:
-        print("\nRun `claudemon install` to wire up the hooks.")
+        print("\nRun `poke-agents install` to wire up the hooks.")
     if not running:
-        print("Launch Claudemon.app to see sprites.")
+        print("Launch PokeAgents.app to see sprites.")
     return 0 if ok else 1
 
 
@@ -161,7 +161,7 @@ def _display_mode():
 def _overlay_running():
     import subprocess
     try:
-        out = subprocess.run(["pgrep", "-x", "Claudemon"], stdout=subprocess.DEVNULL,
+        out = subprocess.run(["pgrep", "-x", "PokeAgents"], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, timeout=5)
         return out.returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -317,13 +317,26 @@ def _adopt_once(adapters):
 
     # Anything the adapters no longer report, or whose process died, goes away.
     state.prune(directory, now)
-    taken = {r.species for r in state.read_all(directory)}
+
+    existing_records = state.read_all(directory)
+    taken = {r.species for r in existing_records}
+
+    # Once the hooks are installed a session writes its own record, keyed by
+    # Claude's session id. Adopting the same process under a different id would
+    # put two sprites on screen for one session, so hook-written records win.
+    hooked_pids = {r.pid for r in existing_records
+                   if r.pid and not r.session_id.startswith("adopted-")}
 
     ids = []
     for adapter in adapters:
         for found in adapter.discover():
             pid = found.get("pid")
             if not isinstance(pid, int) or pid <= 0:
+                continue
+
+            if pid in hooked_pids:
+                # Already represented by its own hook-written record.
+                state.delete(directory, "adopted-%s-%d" % (adapter.name, pid))
                 continue
 
             session_id = "adopted-%s-%d" % (adapter.name, pid)
@@ -370,7 +383,7 @@ def _adopt_label(found):
 def cmd_terminals(args):
     adapters = terminals.available(_preferred_terminals())
     if not adapters:
-        return _fail("no adapters in %s; run `claudemon install`"
+        return _fail("no adapters in %s; run `poke-agents install`"
                      % terminals.directory())
 
     print("%-16s %-10s %-10s %s" % ("ADAPTER", "DETECTED", "DISCOVERS", "PATH"))
@@ -555,7 +568,7 @@ def _herdr_json(args):
 _FAKE_LABELS = [
     "widgets-api", "widgets@hotfix", "billing-worker", "internal-tools",
     "data-pipeline", "weekly-report", "search-index", "mobile-app",
-    "auth-service", "docs-site", "claudemon", "widgets@refactor",
+    "auth-service", "docs-site", "pokeagents", "widgets@refactor",
 ]
 
 
@@ -604,7 +617,7 @@ def _fail(message):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="claudemon", description=__doc__,
+    parser = argparse.ArgumentParser(prog="poke-agents", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -615,7 +628,7 @@ def build_parser():
                    help="overwrite terminal adapters with the bundled versions")
     p.set_defaults(func=cmd_install)
 
-    p = sub.add_parser("uninstall", help="remove Claudemon's hook entries")
+    p = sub.add_parser("uninstall", help="remove PokeAgents's hook entries")
     p.add_argument("--settings")
     p.set_defaults(func=cmd_uninstall)
 

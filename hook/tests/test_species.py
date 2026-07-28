@@ -1,6 +1,6 @@
 import unittest
 
-from claudemon import species
+from pokeagents import species
 
 
 class TestFnv1a(unittest.TestCase):

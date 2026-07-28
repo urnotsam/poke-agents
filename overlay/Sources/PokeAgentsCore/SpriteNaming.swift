@@ -1,6 +1,6 @@
 import Foundation
 
-/// Cache filenames for sprites. Must stay in step with `claudemon/sprites.py`,
+/// Cache filenames for sprites. Must stay in step with `pokeagents/sprites.py`,
 /// which is what writes them.
 public enum SpriteNaming {
     public static func filename(species: String, shiny: Bool, animated: Bool) -> String {

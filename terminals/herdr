@@ -7,7 +7,7 @@
 set -uo pipefail
 
 herdr_bin() {
-  for candidate in "${CLAUDEMON_HERDR:-}" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
+  for candidate in "${POKEAGENTS_HERDR:-}" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
     [ -n "$candidate" ] && [ -x "$candidate" ] && { echo "$candidate"; return 0; }
   done
   command -v herdr 2>/dev/null && return 0

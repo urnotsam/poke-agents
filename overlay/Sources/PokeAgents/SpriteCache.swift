@@ -1,7 +1,7 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
-/// Loads sprite images from the on-disk cache written by `claudemon fetch`.
+/// Loads sprite images from the on-disk cache written by `poke-agents fetch`.
 ///
 /// Sprites are Nintendo / Game Freak property and are never bundled. A missing
 /// one falls back to a drawn Poké Ball rather than leaving a hole on screen.

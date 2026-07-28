@@ -1,9 +1,9 @@
 import Foundation
-import ClaudemonCore
+import PokeAgentsCore
 
 private func withTempDir(_ body: (URL) throws -> Void) rethrows {
     let dir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("claudemon-tests-\(UUID().uuidString)")
+        .appendingPathComponent("pokeagents-tests-\(UUID().uuidString)")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
     try body(dir)

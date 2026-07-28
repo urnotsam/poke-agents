@@ -6,10 +6,10 @@ import sys
 import tempfile
 import unittest
 
-from claudemon import process, runner, state
+from pokeagents import process, runner, state
 
 HOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "claudemon_hook.py")
+                    "pokeagents_hook.py")
 
 PROC = process.ProcInfo(pid=4242, ppid=1, comm="claude", tty="ttys007")
 
@@ -201,7 +201,7 @@ class TestHookEntryPoint(unittest.TestCase):
 
     def run_hook(self, payload, extra_env=None):
         env = dict(os.environ)
-        env["CLAUDEMON_HOME"] = self.home
+        env["POKEAGENTS_HOME"] = self.home
         env["PYTHONPATH"] = os.path.dirname(HOOK)
         env.update(extra_env or {})
         return subprocess.run(
@@ -225,7 +225,7 @@ class TestHookEntryPoint(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.sessions_dir(), "abc.json")))
 
     def test_malformed_json_exits_zero_silently(self):
-        env = dict(os.environ, CLAUDEMON_HOME=self.home,
+        env = dict(os.environ, POKEAGENTS_HOME=self.home,
                    PYTHONPATH=os.path.dirname(HOOK))
         out = subprocess.run([sys.executable, HOOK], input=b"{not json",
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -234,7 +234,7 @@ class TestHookEntryPoint(unittest.TestCase):
         self.assertEqual(out.stdout, b"")
 
     def test_empty_stdin_exits_zero_silently(self):
-        env = dict(os.environ, CLAUDEMON_HOME=self.home,
+        env = dict(os.environ, POKEAGENTS_HOME=self.home,
                    PYTHONPATH=os.path.dirname(HOOK))
         out = subprocess.run([sys.executable, HOOK], input=b"",
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -249,7 +249,7 @@ class TestHookEntryPoint(unittest.TestCase):
         try:
             out = self.run_hook({"hook_event_name": "SessionStart",
                                  "session_id": "abc", "cwd": os.getcwd()},
-                                extra_env={"CLAUDEMON_HOME": blocked})
+                                extra_env={"POKEAGENTS_HOME": blocked})
             self.assertEqual(out.returncode, 0)
             self.assertEqual(out.stdout, b"")
         finally:
@@ -258,7 +258,7 @@ class TestHookEntryPoint(unittest.TestCase):
     def test_disable_flag_short_circuits(self):
         self.run_hook({"hook_event_name": "SessionStart",
                        "session_id": "abc", "cwd": os.getcwd()},
-                      extra_env={"CLAUDEMON_DISABLE": "1"})
+                      extra_env={"POKEAGENTS_DISABLE": "1"})
         self.assertFalse(os.path.exists(os.path.join(self.sessions_dir(), "abc.json")))
 
     def test_completes_quickly(self):

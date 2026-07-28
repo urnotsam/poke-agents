@@ -1,4 +1,4 @@
-# Claudemon
+# poke-agents
 
 Your running Claude Code sessions, as Pokémon on your desktop.
 
@@ -17,7 +17,7 @@ bottom: large, medium, small.*
 > drawn by the app in an offscreen render, the session names are invented, and no
 > real screen appears anywhere — but the sprite positions come from the actual
 > layout engine, so the arrangements are exactly what you get. Regenerate them
-> with `CLAUDEMON_RENDER_MODES=out.png Claudemon.app/Contents/MacOS/Claudemon`.
+> with `POKEAGENTS_RENDER_MODES=out.png PokeAgents.app/Contents/MacOS/PokeAgents`.
 
 The point is peripheral vision. If you run several agents at once, the thing you
 actually need to know is *which one is waiting on you* — and you need to know it
@@ -59,10 +59,10 @@ starts flashing in the corner of your eye answers that question for free.
 git clone https://github.com/urnotsam/poke-agents.git
 cd poke-agents
 
-./overlay/build.sh            # builds Claudemon.app (~30s, no Xcode required)
-./cli/claudemon fetch --all   # caches 180 species (~720 files, one time)
-./cli/claudemon install       # wires the Claude Code hooks
-open overlay/Claudemon.app
+./overlay/build.sh            # builds PokeAgents.app (~30s, no Xcode required)
+./cli/poke-agents fetch --all   # caches 180 species (~720 files, one time)
+./cli/poke-agents install       # wires the hooks and installs terminal adapters
+open overlay/PokeAgents.app
 ```
 
 `install` backs up `~/.claude/settings.json` before touching it, and only ever
@@ -72,13 +72,18 @@ Sessions already running won't have sprites until they next do something. To see
 them immediately:
 
 ```bash
-./cli/claudemon adopt --watch
+./cli/poke-agents adopt --watch
 ```
+
+The two sources cooperate: once a session writes its own record via the hook,
+`adopt` steps aside for it, so you never get two sprites for one session. Hooks
+label a session by its repository; `adopt` can use the terminal's title, which is
+often more specific.
 
 Check everything landed:
 
 ```bash
-./cli/claudemon doctor
+./cli/poke-agents doctor
 ```
 
 ## How it works
@@ -87,13 +92,13 @@ Check everything landed:
 Claude Code session
       │  hook events (SessionStart, PreToolUse, Notification, Stop, …)
       ▼
-claudemon_hook.py                  Python, standard library only
+pokeagents_hook.py                  Python, standard library only
       │  one atomic JSON write
       ▼
-~/.claude/claudemon/sessions/*.json      one file per live session
+~/.claude/poke-agents/sessions/*.json      one file per live session
       │  FSEvents
       ▼
-Claudemon.app                      Swift menu-bar agent
+PokeAgents.app                      Swift menu-bar agent
       │  one borderless window per sprite
       ▼
 your desktop
@@ -112,7 +117,7 @@ Two consequences worth knowing:
 - **The hook is built to stay out of your way.** It always exits 0 and never
   writes to stdout — `SessionStart` stdout gets injected into the model's context,
   so a stray `print` would quietly pollute your conversation. Diagnostics go to
-  `~/.claude/claudemon/hook.log`.
+  `~/.claude/poke-agents/hook.log`.
 
 ## Display modes
 
@@ -190,7 +195,7 @@ a year, which is not a feature, it's a rumour. At 1 in 64 you'll see one every
 week or two — rare enough to be a small event when it happens, common enough to
 actually exist.
 
-To change it, edit `SHINY_ODDS` in [`hook/claudemon/species.py`](hook/claudemon/species.py).
+To change it, edit `SHINY_ODDS` in [`hook/pokeagents/species.py`](hook/pokeagents/species.py).
 Set it to `1` if you want everything shiny, which is a legitimate aesthetic
 choice and looks quite good in the cluster modes.
 
@@ -205,11 +210,11 @@ terminal at all — the sprite shakes instead.
 
 ## Adding your terminal
 
-Claudemon ships adapters for **herdr**, **Terminal.app**, **iTerm2**, **tmux**,
+PokeAgents ships adapters for **herdr**, **Terminal.app**, **iTerm2**, **tmux**,
 **WezTerm**, and **Ghostty**. Adding your own means writing one small executable —
 you never touch Swift or rebuild the app.
 
-An adapter is any executable in `~/.claude/claudemon/terminals/`, in any language,
+An adapter is any executable in `~/.claude/poke-agents/terminals/`, in any language,
 that answers two subcommands via its exit code:
 
 ```bash
@@ -217,7 +222,7 @@ myterm detect              # exit 0 if this terminal is usable right now
 myterm focus <pid> <tty>   # exit 0 if you actually focused the session
 ```
 
-There's an optional third, `discover`, which lets `claudemon adopt` list sessions
+There's an optional third, `discover`, which lets `poke-agents adopt` list sessions
 your terminal already knows about before they've fired any hook.
 
 Full contract, worked examples, and testing instructions:
@@ -229,18 +234,18 @@ Adapters for new terminals are very welcome as PRs.
 
 | Command | What it does |
 |---|---|
-| `claudemon install` | Add the hooks to `~/.claude/settings.json` (backs it up first) |
-| `claudemon uninstall` | Remove exactly the entries it added |
-| `claudemon doctor` | Report hooks, state, sprite cache, overlay, and display mode |
-| `claudemon ls` | List live sessions as a table |
-| `claudemon adopt [--watch]` | Show sessions your terminal already knows about |
-| `claudemon fetch --all` | Download and cache the sprite roster |
-| `claudemon terminals` | List adapters and which ones detect |
-| `claudemon simulate [--count N]` | Write fake sessions, for working on the overlay itself |
+| `poke-agents install` | Add the hooks to `~/.claude/settings.json` (backs it up first) |
+| `poke-agents uninstall` | Remove exactly the entries it added |
+| `poke-agents doctor` | Report hooks, state, sprite cache, overlay, and display mode |
+| `poke-agents ls` | List live sessions as a table |
+| `poke-agents adopt [--watch]` | Show sessions your terminal already knows about |
+| `poke-agents fetch --all` | Download and cache the sprite roster |
+| `poke-agents terminals` | List adapters and which ones detect |
+| `poke-agents simulate [--count N]` | Write fake sessions, for working on the overlay itself |
 
 ## Configuration
 
-`~/.claude/claudemon/config.json`:
+`~/.claude/poke-agents/config.json`:
 
 ```json
 {
@@ -258,17 +263,17 @@ Environment variables:
 
 | Variable | Effect |
 |---|---|
-| `CLAUDEMON_DISABLE=1` | Hook does nothing — turn it off without uninstalling |
-| `CLAUDEMON_HOME` | Move the state directory (default `~/.claude/claudemon`) |
+| `POKEAGENTS_DISABLE=1` | Hook does nothing — turn it off without uninstalling |
+| `POKEAGENTS_HOME` | Move the state directory (default `~/.claude/poke-agents`) |
 
 ## Troubleshooting
 
-**No sprites appear.** Run `claudemon doctor`. Hooks only fire on a session's
-*next* event, so try typing something, or run `claudemon adopt --watch`.
+**No sprites appear.** Run `poke-agents doctor`. Hooks only fire on a session's
+*next* event, so try typing something, or run `poke-agents adopt --watch`.
 
-**Clicking does nothing.** Run `claudemon terminals` to see whether any adapter
+**Clicking does nothing.** Run `poke-agents terminals` to see whether any adapter
 detects. If yours isn't listed, [write an adapter](terminals/README.md) — it's
-about ten lines. Check `~/.claude/claudemon/overlay.log`, which records every
+about ten lines. Check `~/.claude/poke-agents/overlay.log`, which records every
 click, the pid and tty it resolved, and whether focusing succeeded.
 
 **Clicking switches the tab but doesn't bring the window forward.** Your adapter's
@@ -276,11 +281,11 @@ click, the pid and tty it resolved, and whether focusing succeeded.
 application; this is the most common mistake when writing one.
 
 **Sprites are Poké Balls.** The sprite cache is empty or the download failed. Run
-`claudemon fetch --all`.
+`poke-agents fetch --all`.
 
 **A sprite is stuck.** The overlay reaps sessions whose process is gone within 10
 seconds. If one persists, its pid is genuinely still alive — check with
-`claudemon ls`, which flags stale records.
+`poke-agents ls`, which flags stale records.
 
 **Sprites cover something important.** Switch to a cluster mode, or Small, or hit
 Pause in the menu bar.
@@ -288,19 +293,19 @@ Pause in the menu bar.
 ## Uninstall
 
 ```bash
-./cli/claudemon uninstall     # removes only its own hook entries
-rm -rf ~/.claude/claudemon    # state, sprite cache, config, logs
+./cli/poke-agents uninstall     # removes only its own hook entries
+rm -rf ~/.claude/poke-agents    # state, sprite cache, config, logs
 ```
 
-Then quit the app from the menu bar and delete `Claudemon.app`.
+Then quit the app from the menu bar and delete `PokeAgents.app`.
 
 ## What this installs, and what it can do
 
 Worth being explicit, because this asks you to run code on every Claude Code
 event.
 
-`claudemon install` adds six entries to `~/.claude/settings.json`, one per hook
-event, each running `hook/claudemon_hook.py` from wherever you cloned this repo.
+`poke-agents install` adds six entries to `~/.claude/settings.json`, one per hook
+event, each running `hook/pokeagents_hook.py` from wherever you cloned this repo.
 Claude Code hooks are arbitrary shell commands, so **anything in that script runs
 with your user's full privileges, on every event, in every session.** That is
 true of any Claude Code hook, and it's worth understanding before installing one
@@ -308,12 +313,12 @@ from the internet — including this one.
 
 What this hook actually does: reads the event JSON on stdin, resolves the owning
 process, and writes one small JSON file. It makes no network requests. The only
-component that touches the network is `claudemon fetch`, which downloads sprites
+component that touches the network is `poke-agents fetch`, which downloads sprites
 over HTTPS from `play.pokemonshowdown.com` when you run it explicitly.
 
 Everything stays on your machine. Nothing is sent anywhere. Session labels can
 include your working-directory and terminal-title text, so they're written only
-to `~/.claude/claudemon/` and drawn on your own screen.
+to `~/.claude/poke-agents/` and drawn on your own screen.
 
 The installer backs up your settings file first, marks its own entries so
 `uninstall` removes exactly those and nothing else, and refuses to touch a
@@ -325,13 +330,13 @@ Three more things a security review of this project surfaced, which you should
 know rather than have to discover:
 
 - **The session directory is user-writable and unauthenticated.** Anything
-  running as you can drop a file into `~/.claude/claudemon/sessions/` and make a
+  running as you can drop a file into `~/.claude/poke-agents/sessions/` and make a
   sprite appear. Values read back from those files are therefore treated as
   untrusted: adapters receive the pid and tty as arguments and never as shell or
   AppleScript text, and a species that isn't a plain Showdown id is refused
   rather than used to build a file path. If you write an adapter, keep that
   property — never interpolate a session field into a command string.
-- **Sprites come from a third-party CDN.** `claudemon fetch` downloads from
+- **Sprites come from a third-party CDN.** `poke-agents fetch` downloads from
   `play.pokemonshowdown.com`. Responses are pinned to that host across redirects,
   size-capped, and checked for GIF/PNG magic bytes before being cached, but they
   are not signature-verified.
@@ -347,8 +352,8 @@ supply chain to audit beyond this repository itself.
 
 **The code** is MIT licensed. See [LICENSE](LICENSE).
 
-**The sprites are not mine, and are not in this repository.** Claudemon ships a
-downloader, not artwork. `claudemon fetch` pulls sprites at runtime from
+**The sprites are not mine, and are not in this repository.** PokeAgents ships a
+downloader, not artwork. `poke-agents fetch` pulls sprites at runtime from
 [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/) into a local cache
 on your own machine. The only bundled image is a Poké Ball, drawn in code as a
 fallback.
@@ -369,5 +374,5 @@ Run the tests:
 
 ```bash
 cd hook && PYTHONPATH=. python3 -m unittest discover -s tests
-cd overlay && swift run ClaudemonTests
+cd overlay && swift run PokeAgentsTests
 ```

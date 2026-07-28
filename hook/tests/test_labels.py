@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import unittest
 
-from claudemon import labels
+from pokeagents import labels
 
 
 class TestFormatLabel(unittest.TestCase):

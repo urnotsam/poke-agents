@@ -1,5 +1,5 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// Renders sample sprites to a PNG and exits.
 ///
@@ -7,7 +7,7 @@ import ClaudemonCore
 /// the screen, which is not always available. Uses the real `SpriteView`, so
 /// what it produces is what the overlay draws.
 ///
-///     CLAUDEMON_RENDER=out.png Claudemon.app/Contents/MacOS/Claudemon
+///     POKEAGENTS_RENDER=out.png PokeAgents.app/Contents/MacOS/PokeAgents
 ///
 /// Draws one row per sprite size and one column per state.
 enum RenderPreview {

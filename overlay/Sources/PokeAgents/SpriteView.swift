@@ -1,5 +1,5 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// Draws one sprite: the Pokémon, its label, and whatever the current state adds
 /// on top of it.

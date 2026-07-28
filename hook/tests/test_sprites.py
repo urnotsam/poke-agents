@@ -1,6 +1,6 @@
 import unittest
 
-from claudemon import species, sprites
+from pokeagents import species, sprites
 
 
 class TestUrls(unittest.TestCase):

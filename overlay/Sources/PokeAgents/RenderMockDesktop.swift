@@ -1,9 +1,9 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// Renders mocked desktops showing each display mode, and exits.
 ///
-///     CLAUDEMON_RENDER_MODES=out.png Claudemon.app/Contents/MacOS/Claudemon
+///     POKEAGENTS_RENDER_MODES=out.png PokeAgents.app/Contents/MacOS/PokeAgents
 ///
 /// Everything here is synthetic: an invented wallpaper, abstract window shapes
 /// with no real text, and fabricated session labels. Nothing is captured from a

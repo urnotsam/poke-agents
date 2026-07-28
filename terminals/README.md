@@ -1,11 +1,11 @@
 # Terminal adapters
 
-An adapter teaches Claudemon how to find and focus the terminal running a
+An adapter teaches PokeAgents how to find and focus the terminal running a
 session. Adding support for your terminal means writing one small executable —
 **you never have to touch the Swift code or rebuild the app.**
 
-Adapters live in `~/.claude/claudemon/terminals/`. Anything executable in that
-directory is an adapter, in any language. `claudemon install` copies the
+Adapters live in `~/.claude/poke-agents/terminals/`. Anything executable in that
+directory is an adapter, in any language. `poke-agents install` copies the
 built-ins there; your own files are never overwritten.
 
 ## The contract
@@ -36,7 +36,7 @@ myterm focus <pid> <tty>
 
 `<tty>` may be the literal string `none` for a session with no controlling
 terminal, such as a background agent. Exit `0` only if you actually focused
-something — a non-zero exit lets Claudemon try the next adapter, and if they all
+something — a non-zero exit lets PokeAgents try the next adapter, and if they all
 decline the sprite shakes to say "nowhere to go".
 
 Focusing usually means two steps, and skipping the second is the most common
@@ -50,7 +50,7 @@ focused.
 
 Hooks only learn about a session once it fires an event, so a fresh install
 shows nothing until you type something. If your terminal can enumerate its own
-sessions, implement `discover` and `claudemon adopt` will show them right away.
+sessions, implement `discover` and `poke-agents adopt` will show them right away.
 
 Print one JSON object per line:
 
@@ -68,14 +68,14 @@ Anything you print on any other subcommand is ignored.
 
 | Variable | Meaning |
 |---|---|
-| `CLAUDEMON_SESSION_JSON` | The full session record, for adapters wanting more than pid and tty |
-| `CLAUDEMON_HOME` | Claudemon's state directory |
+| `POKEAGENTS_SESSION_JSON` | The full session record, for adapters wanting more than pid and tty |
+| `POKEAGENTS_HOME` | PokeAgents's state directory |
 
 ## A complete example
 
 ```bash
 #!/usr/bin/env bash
-# ~/.claude/claudemon/terminals/kitty
+# ~/.claude/poke-agents/terminals/kitty
 set -euo pipefail
 
 case "${1:-}" in
@@ -108,7 +108,7 @@ esac
 
 ## Ordering
 
-Adapters are tried in the order listed in `~/.claude/claudemon/config.json`:
+Adapters are tried in the order listed in `~/.claude/poke-agents/config.json`:
 
 ```json
 { "terminals": ["herdr", "kitty", "terminal-app"] }
@@ -120,8 +120,8 @@ list the others explicitly or remove the file.
 ## Testing yours
 
 ```bash
-claudemon terminals              # which adapters are found, and which detect
-claudemon terminals --focus PID  # run a real focus attempt and show the result
+poke-agents terminals              # which adapters are found, and which detect
+poke-agents terminals --focus PID  # run a real focus attempt and show the result
 ```
 
 ## Contributing one back

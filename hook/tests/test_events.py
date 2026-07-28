@@ -1,6 +1,6 @@
 import unittest
 
-from claudemon import events
+from pokeagents import events
 
 
 class TestTransitionFor(unittest.TestCase):

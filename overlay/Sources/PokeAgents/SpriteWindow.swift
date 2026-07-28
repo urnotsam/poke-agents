@@ -1,5 +1,5 @@
 import AppKit
-import ClaudemonCore
+import PokeAgentsCore
 
 /// One borderless panel per sprite.
 ///

@@ -1,4 +1,4 @@
-"""Installing and removing Claudemon's hook entries in a Claude Code settings file.
+"""Installing and removing PokeAgents's hook entries in a Claude Code settings file.
 
 The user's settings.json is theirs, not ours. Every operation here preserves
 unrelated settings and unrelated hooks, marks its own entries so uninstall can
@@ -16,7 +16,7 @@ from . import atomicio
 
 # Identifies an entry as ours. Matching on this rather than on the command
 # string means uninstall still works after the hook has been moved.
-MARKER = "claudemonManaged"
+MARKER = "pokeAgentsManaged"
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "Notification",
           "Stop", "SessionEnd")
@@ -34,7 +34,7 @@ def default_path() -> str:
 
 
 def install(path: str, hook_path: str, python: Optional[str] = None) -> None:
-    """Add or refresh Claudemon's hook entries. Idempotent."""
+    """Add or refresh PokeAgents's hook entries. Idempotent."""
     data = _load(path)
     _backup(path)
 

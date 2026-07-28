@@ -2,15 +2,15 @@
 
 import os
 
-_ENV_HOME = "CLAUDEMON_HOME"
-_ENV_DISABLE = "CLAUDEMON_DISABLE"
+_ENV_HOME = "POKEAGENTS_HOME"
+_ENV_DISABLE = "POKEAGENTS_DISABLE"
 
 
 def home() -> str:
     override = os.environ.get(_ENV_HOME)
     if override:
         return os.path.expanduser(override)
-    return os.path.expanduser("~/.claude/claudemon")
+    return os.path.expanduser("~/.claude/poke-agents")
 
 
 def sessions_dir() -> str:

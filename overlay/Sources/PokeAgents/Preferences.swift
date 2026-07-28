@@ -1,10 +1,10 @@
 import Foundation
-import ClaudemonCore
+import PokeAgentsCore
 
 /// User settings, stored next to the session state.
 ///
 /// A plain JSON file rather than UserDefaults, so it can be inspected and edited
-/// alongside everything else Claudemon writes, and so `claudemon doctor` can
+/// alongside everything else PokeAgents writes, and so `poke-agents doctor` can
 /// report it without talking to the app.
 struct Preferences: Codable, Equatable {
     // Decoding is lenient so a config written by an older build, or hand-edited

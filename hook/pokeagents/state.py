@@ -98,7 +98,7 @@ def prune(directory: str, now: Optional[int] = None) -> List[str]:
 
     SessionEnd covers the clean case, and the overlay stops *drawing* stale
     records, but nothing removes the files. A process killed with SIGKILL —
-    including `claudemon simulate` — would otherwise leave records behind
+    including `poke-agents simulate` — would otherwise leave records behind
     permanently.
     """
     removed = []
