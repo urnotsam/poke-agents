@@ -11,10 +11,15 @@ and [adding another harness](harnesses/README.md) is a small map of event names.
 
 ![Four display modes on a mocked desktop](docs/images/display-modes.png)
 
-![Three sprite states at three sizes](docs/images/states-and-sizes.png)
+*Four of the twelve arrangements, drawn at the defaults a fresh install uses:
+**Cluster — Bottom Right** at the **small** sprite size. They look modest against
+a full screen because that is the point — both are configurable from the menu
+bar.*
 
-*Sprite states, left to right: `running`, `attention`, `done`. Sizes, top to
-bottom: large, medium, small.*
+![Sprite states at three sizes](docs/images/states-and-sizes.png)
+
+*States, left to right: `running`, `attention`, `done`, and a background agent
+with no terminal to jump to. Sizes, top to bottom: large, medium, small.*
 
 > Both images are generated, not captured. The wallpaper and window shapes are
 > drawn by the app in an offscreen render, the session names are invented, and no

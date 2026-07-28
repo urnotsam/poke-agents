@@ -11,10 +11,11 @@ import PokeAgentsCore
 /// desktop. Sprite positions come from the real `Layout`, so the pictures stay
 /// honest about what each mode actually does.
 enum RenderMockDesktop {
+    // The default first, so the picture leads with what a new install looks like.
     private static let panels: [(DisplayMode, String)] = [
+        (.clusterBottomRight, "Cluster — Bottom Right  (default)"),
         (.marqueeTop, "Marquee — Top"),
         (.staticBottom, "Static — Bottom"),
-        (.clusterTopRight, "Cluster — Top Right"),
         (.marqueeLeft, "Marquee — Left"),
     ]
 
@@ -27,6 +28,9 @@ enum RenderMockDesktop {
         ("auth-service", .running),
     ]
 
+    /// Background agents are hidden by default, so none appear here — the
+    /// picture should match a fresh install, not every feature at once.
+
     private static let screen = NSSize(width: 1512, height: 945)
     private static let scale: CGFloat = 0.5
     private static let captionHeight: CGFloat = 34
@@ -34,7 +38,9 @@ enum RenderMockDesktop {
 
     static func run(to path: String) -> Never {
         let cache = SpriteCache(directory: Paths.home().appendingPathComponent("sprites"))
-        let metrics = SpriteMetrics(size: .large)
+        // Whatever the app actually defaults to, so the picture cannot drift
+        // from a fresh install.
+        let metrics = SpriteMetrics(size: .default)
 
         let panelSize = NSSize(width: screen.width * scale,
                                height: screen.height * scale + captionHeight)
