@@ -11,13 +11,9 @@ final class SpriteWindow: NSWindow {
     private let spriteView = SpriteView()
     private var onClick: ((String) -> Void)?
 
-    /// Where the layout wants this sprite. Motion drifts around this point
-    /// rather than away from it, so sprites roam without colliding.
-    /// Marquee parameters, supplied by the layout.
-    var trackOffset: Double = 0
-    var baseY: Double = 0
-    var verticalAmplitude: Double = 0
-    var phase: Double = 0
+    /// Where the layout wants this sprite, and how it may move. Replaced
+    /// wholesale whenever the layout reruns, including on a mode change.
+    var placement: Placement?
 
     /// Set when a click had nowhere to go. The motion loop reads this and adds a
     /// jitter, rather than running a CAAnimation that the loop would overwrite

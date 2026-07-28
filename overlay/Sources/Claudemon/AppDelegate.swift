@@ -5,11 +5,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store: SessionStore
     private let cache: SpriteCache
     /// The layout reasons about the sprite; the window around it is bigger.
-    /// Reserving the bubble zone in `topInset` keeps sprites and their bubbles
-    /// clear of the menu bar.
-    private let layout = Layout(config: .init(
+    /// Reserving the bubble zone keeps sprites and their bubbles clear of the
+    /// menu bar and screen edges.
+    private static let layoutConfig = Layout.Config(
         spriteSize: SpriteView.spriteSize,
-        topInset: SpriteView.spriteTopInset + 10))
+        edgeInset: 10,
+        bubbleInset: SpriteView.spriteTopInset + 10)
+
+    private var preferences = Preferences.load()
+    private var layout = Layout(config: AppDelegate.layoutConfig, mode: Preferences.load().mode)
 
     private var watcher: DirectoryWatcher?
     private var windows: [String: SpriteWindow] = [:]
@@ -84,11 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         for placement in placements {
-            guard let window = windows[placement.sessionID] else { continue }
-            window.trackOffset = placement.trackOffset
-            window.baseY = placement.baseY
-            window.verticalAmplitude = placement.verticalAmplitude
-            window.phase = placement.phase
+            windows[placement.sessionID]?.placement = placement
         }
 
         updateStatusItem(live: live)
@@ -128,32 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let elapsed = now.timeIntervalSince(startedAt)
 
         for (id, window) in windows {
-            guard let record = records[id] else { continue }
-
-            let position = layout.position(offset: window.trackOffset,
-                                           elapsed: elapsed,
-                                           speed: Self.marqueeSpeed,
-                                           screenWidth: screenFrame.width)
-            let x = screenFrame.minX + layout.screenX(position: position)
-                - SpriteView.spriteSideInset
-
-            // Two sines of unrelated periods, so the vertical wander reads as
-            // random rather than as an obvious loop.
-            let wander = sin(elapsed * 0.7 + window.phase) * 0.65
-                + sin(elapsed * 1.7 + window.phase * 2.3) * 0.35
-            var y = window.baseY + wander * window.verticalAmplitude
+            guard let record = records[id], let placement = window.placement else { continue }
 
             // Attention adds a fast bob on top of the wander: the one sprite
-            // that needs you should be the one moving differently.
-            if record.state == .attention {
-                y += abs(sin(elapsed * 4.5)) * 7
-            }
+            // that needs you should be the one moving differently. It rides the
+            // wander axis, so it cannot push a sprite into a neighbour.
+            let bob = record.state == .attention ? abs(sin(elapsed * 4.5)) * 7 : 0
 
-            // The layout places the sprite, so drop the window by the label
-            // strip beneath it to put the sprite where it was told to go.
-            window.setFrameOrigin(NSPoint(x: x + window.shakeOffset(now: now),
-                                          y: screenFrame.minY + y
-                                              - SpriteView.spriteBottomInset))
+            let point = layout.point(for: placement, elapsed: elapsed,
+                                     speed: Self.marqueeSpeed,
+                                     screenWidth: screenFrame.width,
+                                     screenHeight: screenFrame.height,
+                                     extraWander: bob)
+
+            // The layout places the sprite; the window around it is larger, so
+            // offset by the label strip below and the padding either side.
+            window.setFrameOrigin(NSPoint(
+                x: screenFrame.minX + point.x - SpriteView.spriteSideInset
+                    + window.shakeOffset(now: now),
+                y: screenFrame.minY + point.y - SpriteView.spriteBottomInset))
             window.tick(elapsed)
         }
     }
@@ -174,7 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusItem(live: [SessionRecord]) {
         let attention = live.filter { $0.state == .attention }.count
         let running = live.filter { $0.state == .running }.count
-        let overflow = layout.overflowCount(live)
+        let overflow = layout.overflowCount(live, screenWidth: screenFrame.width,
+                                            screenHeight: screenFrame.height)
 
         statusItem?.button?.title = attention > 0 ? "◓ \(attention)!" : "◓ \(running)"
 
@@ -196,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
+        menu.addItem(displayMenuItem())
+
         let pause = NSMenuItem(title: isPaused ? "Resume" : "Pause",
                                action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
@@ -205,6 +201,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quit)
 
         statusItem?.menu = menu
+    }
+
+    /// A submenu of every arrangement, grouped and check-marked.
+    private func displayMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        for (index, group) in DisplayMode.groups.enumerated() {
+            if index > 0 { submenu.addItem(.separator()) }
+            let header = NSMenuItem(title: group.0, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            submenu.addItem(header)
+
+            for mode in group.1 {
+                let item = NSMenuItem(title: "  " + mode.title,
+                                      action: #selector(selectMode(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = mode.rawValue
+                item.state = mode == preferences.mode ? .on : .off
+                submenu.addItem(item)
+            }
+        }
+
+        let item = NSMenuItem(title: "Display: \(preferences.mode.title)",
+                              action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func selectMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = DisplayMode(rawValue: raw),
+              mode != preferences.mode else { return }
+
+        preferences.mode = mode
+        preferences.save()
+        layout = Layout(config: Self.layoutConfig, mode: mode)
+
+        // A new arrangement can have a different capacity, so rebuild from
+        // scratch rather than trying to migrate the existing windows.
+        for window in windows.values { window.orderOut(nil) }
+        windows.removeAll()
+        reload()
     }
 
     @objc private func focusFromMenu(_ sender: NSMenuItem) {

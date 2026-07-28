@@ -3,6 +3,7 @@ import ClaudemonCore
 
 let screenWidth = 1512.0
 let screenHeight = 982.0
+let epsilon = 0.001
 
 func make(id: String, state: SessionState = .running,
           startedAt: Int = 0, updatedAt: Int = 0) -> SessionRecord {
@@ -11,216 +12,373 @@ func make(id: String, state: SessionState = .running,
                   startedAt: startedAt, updatedAt: updatedAt, lastTool: nil)
 }
 
+/// Screens this is plausibly run on: a small laptop, two MacBooks, and an
+/// ultrawide. Every mode has to behave on all of them.
+let screens: [(Double, Double)] = [
+    (1024, 768), (1440, 900), (1512, 982), (1728, 1117), (3440, 1440),
+]
+
 func runLayoutTests(_ h: Harness) {
-    h.suite("Layout visibility") { h in
+    runSelectionTests(h)
+    runUniversalModeTests(h)
+    runMarqueeTests(h)
+    runStaticTests(h)
+    runClusterTests(h)
+    runStabilityTests(h)
+}
+
+// MARK: - selection
+
+private func runSelectionTests(_ h: Harness) {
+    h.suite("Selection and eviction") { h in
         let layout = Layout()
         let five = (0..<5).map { make(id: "s\($0)") }
-        h.equal(layout.visible(five).count, 5, "everything visible under the cap")
-        h.equal(layout.overflowCount(five), 0, "no overflow under the cap")
+        h.equal(layout.visible(five, limit: 12).count, 5, "everything visible under the cap")
 
-        let capped = Layout(config: .init(maxVisible: 12))
         let twenty = (0..<20).map { make(id: "s\($0)") }
-        h.equal(capped.visible(twenty).count, 12, "visible is capped")
-        h.equal(capped.overflowCount(twenty), 8, "overflow is reported")
+        h.equal(layout.visible(twenty, limit: 12).count, 12, "visible is capped")
 
-        h.expect(Layout().visible([]).isEmpty, "empty input produces nothing")
-        h.expect(Layout().place([], screenWidth: screenWidth, screenHeight: screenHeight).isEmpty,
-                 "empty input places nothing")
-
-        let none = Layout(config: .init(maxVisible: 0))
-        h.expect(none.place(five, screenWidth: screenWidth, screenHeight: screenHeight).isEmpty,
-                 "maxVisible 0 shows nothing")
-        h.equal(none.overflowCount(five), 5, "maxVisible 0 overflows everything")
-    }
-
-    h.suite("Layout eviction") { h in
-        let two = Layout(config: .init(maxVisible: 2))
         let contested = [
             make(id: "done", state: .done, updatedAt: 900),
             make(id: "running", state: .running, updatedAt: 900),
             make(id: "needsMe", state: .attention, updatedAt: 1),
         ]
-        h.expect(two.visible(contested).map(\.sessionID).contains("needsMe"),
+        h.expect(layout.visible(contested, limit: 2).map(\.sessionID).contains("needsMe"),
                  "attention always survives eviction")
 
-        let one = Layout(config: .init(maxVisible: 1))
-        h.equal(one.visible([
+        h.equal(layout.visible([
             make(id: "done", state: .done, updatedAt: 999),
             make(id: "running", state: .running, updatedAt: 1),
-        ]).map(\.sessionID), ["running"], "running is kept over done")
+        ], limit: 1).map(\.sessionID), ["running"], "running is kept over done")
 
-        h.equal(one.visible([
+        h.equal(layout.visible([
             make(id: "old", state: .running, updatedAt: 10),
             make(id: "fresh", state: .running, updatedAt: 20),
-        ]).map(\.sessionID), ["fresh"], "ties break on most recently updated")
+        ], limit: 1).map(\.sessionID), ["fresh"], "ties break on most recently updated")
 
         let tied = [make(id: "b", updatedAt: 5), make(id: "a", updatedAt: 5)]
-        h.equal(one.visible(tied).map(\.sessionID),
-                one.visible(tied.reversed()).map(\.sessionID),
+        h.equal(layout.visible(tied, limit: 1).map(\.sessionID),
+                layout.visible(tied.reversed(), limit: 1).map(\.sessionID),
                 "selection is deterministic for fully tied records")
+
+        h.expect(layout.visible([], limit: 12).isEmpty, "empty input produces nothing")
+        h.expect(layout.place([], screenWidth: screenWidth, screenHeight: screenHeight).isEmpty,
+                 "empty input places nothing")
+    }
+}
+
+// MARK: - every mode
+
+/// The invariants that must hold in all twelve arrangements. Anything mode
+/// specific belongs in the suites below; anything here is a promise the whole
+/// feature makes.
+private func runUniversalModeTests(_ h: Harness) {
+    h.suite("All modes: capacity is honest") { h in
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            for (width, height) in screens {
+                let capacity = layout.capacity(screenWidth: width, screenHeight: height)
+                h.expect(capacity > 0, "\(mode) @\(width)x\(height): nothing fits")
+                h.expect(capacity <= layout.config.maxVisible,
+                         "\(mode) @\(width)x\(height): capacity exceeds the cap")
+
+                let records = (0..<30).map { make(id: "s\($0)", startedAt: $0) }
+                h.equal(layout.place(records, screenWidth: width, screenHeight: height).count,
+                        capacity, "\(mode) @\(width)x\(height): places exactly capacity")
+                h.equal(layout.overflowCount(records, screenWidth: width, screenHeight: height),
+                        30 - capacity, "\(mode) @\(width)x\(height): overflow is the remainder")
+            }
+        }
     }
 
-    h.suite("Marquee spacing") { h in
-        let config = Layout.Config(maxVisible: 12, spriteSize: 72, minGap: 16)
-        let layout = Layout(config: config)
-        let epsilon = 0.001
+    h.suite("All modes: sprites stay on screen") { h in
+        let size = 72.0
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            for (width, height) in screens {
+                let capacity = layout.capacity(screenWidth: width, screenHeight: height)
+                let records = (0..<capacity).map { make(id: "s\($0)", startedAt: $0) }
+                let placements = layout.place(records, screenWidth: width, screenHeight: height)
 
-        for count in [1, 2, 3, 5, 8, 12] {
-            for width in [1024.0, 1512.0, 1728.0, 3440.0] {
-                let records = (0..<count).map { make(id: "s\($0)", startedAt: $0) }
-                let placements = layout.place(records, screenWidth: width, screenHeight: 900)
-                let track = layout.trackLength(screenWidth: width)
+                // Sample across time so travel and wander are both exercised.
+                for elapsed in stride(from: 0.0, through: 240.0, by: 11.0) {
+                    for placement in placements {
+                        let p = layout.point(for: placement, elapsed: elapsed, speed: 26,
+                                             screenWidth: width, screenHeight: height)
 
-                h.equal(placements.count, count, "count=\(count) width=\(width): all placed")
+                        // A travelling sprite is allowed off the far edge, which
+                        // is how wrapping looks; it must not escape any other way.
+                        let travelsHorizontally = mode.travels && !mode.anchor.isVerticalEdge
+                        let travelsVertically = mode.travels && mode.anchor.isVerticalEdge
 
-                let offsets = placements.map(\.trackOffset).sorted()
-                for offset in offsets {
-                    h.expect(offset >= -epsilon && offset < track + epsilon,
-                             "count=\(count) width=\(width): offset \(offset) off the track")
+                        if !travelsHorizontally {
+                            h.expect(p.x >= -epsilon && p.x + size <= width + epsilon,
+                                     "\(mode) @\(width)x\(height) t=\(elapsed): x=\(p.x) off screen")
+                        }
+                        if !travelsVertically {
+                            h.expect(p.y >= -epsilon && p.y + size <= height + epsilon,
+                                     "\(mode) @\(width)x\(height) t=\(elapsed): y=\(p.y) off screen")
+                        }
+                    }
                 }
+            }
+        }
+    }
 
-                // Evenly spaced around a loop, so the wrap-around gap counts too.
-                var gaps = zip(offsets, offsets.dropFirst()).map { $1 - $0 }
-                if let first = offsets.first, let last = offsets.last {
+    h.suite("All modes: sprites never overlap") { h in
+        let size = 72.0
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            for (width, height) in screens {
+                let capacity = layout.capacity(screenWidth: width, screenHeight: height)
+                let records = (0..<capacity).map { make(id: "s\($0)", startedAt: $0) }
+                let placements = layout.place(records, screenWidth: width, screenHeight: height)
+
+                for elapsed in stride(from: 0.0, through: 240.0, by: 13.0) {
+                    let points = placements.map {
+                        layout.point(for: $0, elapsed: elapsed, speed: 26,
+                                     screenWidth: width, screenHeight: height)
+                    }
+                    for i in points.indices {
+                        for j in (i + 1)..<points.count {
+                            let dx = abs(points[i].x - points[j].x)
+                            let dy = abs(points[i].y - points[j].y)
+                            // Axis-aligned boxes only overlap when they do on both axes.
+                            h.expect(dx >= size - epsilon || dy >= size - epsilon,
+                                     "\(mode) @\(width)x\(height) t=\(elapsed): sprites "
+                                     + "\(i) and \(j) overlap (dx=\(dx) dy=\(dy))")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    h.suite("All modes: wander is real and across-track") { h in
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            let placements = layout.place((0..<4).map { make(id: "s\($0)", startedAt: $0) },
+                                          screenWidth: screenWidth, screenHeight: screenHeight)
+            for placement in placements {
+                h.expect(placement.wanderAmplitude > 0,
+                         "\(mode): sprites need some room to move")
+                h.equal(placement.wanderAxis, mode.wanderAxis,
+                        "\(mode): wander axis matches the mode")
+            }
+
+            // Wandering along the direction of travel would let neighbours close
+            // the gap; it must be perpendicular.
+            if mode.travels {
+                let alongIsVertical = mode.anchor.isVerticalEdge
+                h.expect((mode.wanderAxis == .vertical) != alongIsVertical,
+                         "\(mode): wander runs along the travel axis, which permits overlap")
+            }
+        }
+    }
+
+    h.suite("All modes: phases differ") { h in
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            let placements = layout.place((0..<8).map { make(id: "s\($0)", startedAt: $0) },
+                                          screenWidth: screenWidth, screenHeight: screenHeight)
+            let phases = Set(placements.map { ($0.phase * 1000).rounded() })
+            h.expect(phases.count >= max(1, placements.count - 1),
+                     "\(mode): sprites move in unison (\(phases.count) phases)")
+        }
+    }
+
+    h.suite("Mode metadata") { h in
+        h.equal(DisplayMode.allCases.count, 12, "twelve arrangements")
+        h.equal(Set(DisplayMode.groups.flatMap(\.1)), Set(DisplayMode.allCases),
+                "every mode appears in exactly one menu group")
+        h.equal(DisplayMode.groups.flatMap(\.1).count, 12, "no mode is listed twice")
+        h.equal(Set(DisplayMode.allCases.map(\.title)).count, 12, "titles are distinct")
+
+        for mode in DisplayMode.allCases {
+            h.equal(DisplayMode(rawValue: mode.rawValue), mode,
+                    "\(mode) round-trips through its raw value")
+            h.equal(mode.isCluster, mode.anchor.isCorner,
+                    "\(mode): cluster and corner agree")
+        }
+        h.equal(DisplayMode.allCases.filter(\.travels).count, 4, "four marquee modes")
+        h.equal(DisplayMode.allCases.filter(\.isCluster).count, 4, "four cluster modes")
+    }
+}
+
+// MARK: - marquee
+
+private func runMarqueeTests(_ h: Harness) {
+    h.suite("Marquee travel and wrapping") { h in
+        for mode in DisplayMode.allCases where mode.travels {
+            let layout = Layout(mode: mode)
+            let track = layout.trackLength(screenWidth: screenWidth, screenHeight: screenHeight)
+
+            for elapsed in stride(from: 0.0, through: 600.0, by: 7.0) {
+                let position = layout.position(offset: 0, elapsed: elapsed, speed: 26,
+                                               screenWidth: screenWidth,
+                                               screenHeight: screenHeight)
+                h.expect(position >= 0 && position < track,
+                         "\(mode): position \(position) escaped the track at t=\(elapsed)")
+            }
+
+            h.close(layout.position(offset: 0, elapsed: track / 26, speed: 26,
+                                    screenWidth: screenWidth, screenHeight: screenHeight),
+                    0, "\(mode): one full lap returns to the start", accuracy: 0.01)
+            h.close(layout.position(offset: 10, elapsed: -1, speed: 26,
+                                    screenWidth: screenWidth, screenHeight: screenHeight),
+                    track - 16, "\(mode): negative time wraps forward", accuracy: 0.01)
+
+            // Uniform speed is the only reason spacing survives. Different rates
+            // would merge sprites given enough time.
+            let capacity = layout.capacity(screenWidth: screenWidth, screenHeight: screenHeight)
+            let placements = layout.place((0..<capacity).map { make(id: "s\($0)", startedAt: $0) },
+                                          screenWidth: screenWidth, screenHeight: screenHeight)
+            for elapsed in [0.0, 37.0, 512.0, 9_999.0] {
+                let positions = placements.map {
+                    layout.position(offset: $0.trackOffset, elapsed: elapsed, speed: 26,
+                                    screenWidth: screenWidth, screenHeight: screenHeight)
+                }.sorted()
+                var gaps = zip(positions, positions.dropFirst()).map { $1 - $0 }
+                if let first = positions.first, let last = positions.last {
                     gaps.append(track - last + first)
                 }
                 for gap in gaps {
-                    h.expect(gap >= config.spriteSize - epsilon,
-                             "count=\(count) width=\(width): spacing \(gap) is under one "
-                             + "sprite width, so sprites would overlap")
+                    h.expect(gap >= layout.config.spriteSize - 0.01,
+                             "\(mode): spacing decayed to \(gap) after \(elapsed)s")
+                }
+            }
+        }
+    }
+
+    h.suite("Marquee direction") { h in
+        func travel(_ mode: DisplayMode) -> (Point, Point) {
+            let layout = Layout(mode: mode)
+            let placement = layout.place([make(id: "a")],
+                                         screenWidth: screenWidth,
+                                         screenHeight: screenHeight)[0]
+            return (layout.point(for: placement, elapsed: 0, speed: 26,
+                                 screenWidth: screenWidth, screenHeight: screenHeight),
+                    layout.point(for: placement, elapsed: 5, speed: 26,
+                                 screenWidth: screenWidth, screenHeight: screenHeight))
+        }
+
+        let (topStart, topLater) = travel(.marqueeTop)
+        h.expect(topLater.x > topStart.x, "marqueeTop travels horizontally")
+        h.expect(topStart.y > screenHeight / 2, "marqueeTop rides the upper half")
+
+        let (bottomStart, _) = travel(.marqueeBottom)
+        h.expect(bottomStart.y < screenHeight / 2, "marqueeBottom rides the lower half")
+
+        let (leftStart, leftLater) = travel(.marqueeLeft)
+        h.expect(leftLater.y > leftStart.y, "marqueeLeft travels vertically")
+        h.expect(leftStart.x < screenWidth / 2, "marqueeLeft hugs the left")
+
+        let (rightStart, _) = travel(.marqueeRight)
+        h.expect(rightStart.x > screenWidth / 2, "marqueeRight hugs the right")
+    }
+}
+
+// MARK: - static
+
+private func runStaticTests(_ h: Harness) {
+    h.suite("Static modes hold position") { h in
+        for mode in DisplayMode.allCases where !mode.travels && !mode.isCluster {
+            let layout = Layout(mode: mode)
+            let placements = layout.place((0..<5).map { make(id: "s\($0)", startedAt: $0) },
+                                          screenWidth: screenWidth, screenHeight: screenHeight)
+
+            let alongIsVertical = mode.anchor.isVerticalEdge
+            for placement in placements {
+                let a = layout.point(for: placement, elapsed: 0, speed: 26,
+                                     screenWidth: screenWidth, screenHeight: screenHeight)
+                let b = layout.point(for: placement, elapsed: 300, speed: 26,
+                                     screenWidth: screenWidth, screenHeight: screenHeight)
+                // The along-edge coordinate must not move; the other one should.
+                if alongIsVertical {
+                    h.close(a.y, b.y, "\(mode): drifted along its edge", accuracy: epsilon)
+                } else {
+                    h.close(a.x, b.x, "\(mode): drifted along its edge", accuracy: epsilon)
                 }
             }
         }
 
-        // 12 sprites is the documented cap; it has to fit on the smallest screen
-        // this is likely to run on, or the cap is wrong.
-        let tight = layout.place((0..<12).map { make(id: "s\($0)", startedAt: $0) },
-                                 screenWidth: 1024, screenHeight: 768)
-        let tightTrack = layout.trackLength(screenWidth: 1024)
-        h.expect(tightTrack / 12 >= config.spriteSize + config.minGap,
-                 "the visible cap must fit on a small screen with a real gap")
-        h.equal(tight.count, 12, "twelve sprites fit at the cap")
+        let top = Layout(mode: .staticTop)
+        let single = top.place([make(id: "a")], screenWidth: screenWidth,
+                               screenHeight: screenHeight)[0]
+        h.close(single.anchor.x, (screenWidth - top.config.spriteSize) / 2,
+                "a single static sprite is centred on its edge")
+
+        h.expect(Layout(mode: .staticBottom).place([make(id: "a")], screenWidth: screenWidth,
+                                                   screenHeight: screenHeight)[0].anchor.y
+                    < screenHeight / 2, "staticBottom sits low")
+        h.expect(Layout(mode: .staticRight).place([make(id: "a")], screenWidth: screenWidth,
+                                                  screenHeight: screenHeight)[0].anchor.x
+                    > screenWidth / 2, "staticRight sits right")
     }
+}
 
-    h.suite("Marquee travel and wrapping") { h in
-        let layout = Layout()
-        let track = layout.trackLength(screenWidth: screenWidth)
+// MARK: - cluster
 
-        for elapsed in stride(from: 0.0, through: 400.0, by: 7.0) {
-            let position = layout.position(offset: 0, elapsed: elapsed, speed: 26,
-                                           screenWidth: screenWidth)
-            h.expect(position >= 0 && position < track,
-                     "position \(position) escaped the track at t=\(elapsed)")
+private func runClusterTests(_ h: Harness) {
+    h.suite("Cluster grid") { h in
+        for mode in DisplayMode.allCases where mode.isCluster {
+            let layout = Layout(mode: mode)
+            let placements = layout.place((0..<7).map { make(id: "s\($0)", startedAt: $0) },
+                                          screenWidth: screenWidth, screenHeight: screenHeight)
+            h.equal(placements.count, 7, "\(mode): places every sprite")
 
-            let x = layout.screenX(position: position)
-            h.expect(x >= -layout.config.spriteSize - 0.001 && x <= screenWidth + 0.001,
-                     "x \(x) is beyond the wrap margins at t=\(elapsed)")
+            let columns = Set(placements.map { ($0.anchor.x * 10).rounded() })
+            h.equal(columns.count, min(layout.config.clusterColumns, 7),
+                    "\(mode): sprites form a grid of columns")
+
+            let rows = Set(placements.map { ($0.anchor.y * 10).rounded() })
+            h.equal(rows.count, 3, "\(mode): seven sprites over three columns fill three rows")
         }
 
-        h.close(layout.position(offset: 0, elapsed: 0, speed: 26, screenWidth: screenWidth),
-                0, "travel starts at the offset", accuracy: 0.001)
-        h.close(layout.position(offset: 0, elapsed: track / 26, speed: 26,
-                                screenWidth: screenWidth),
-                0, "one full lap returns to the start", accuracy: 0.01)
-        h.close(layout.position(offset: 10, elapsed: -1, speed: 26, screenWidth: screenWidth),
-                track - 16, "negative time wraps forward, never negative", accuracy: 0.01)
-
-        // Uniform speed is the whole reason spacing survives. If two sprites
-        // ever travelled at different rates they would merge.
-        let records = (0..<6).map { make(id: "s\($0)", startedAt: $0) }
-        let placements = layout.place(records, screenWidth: screenWidth, screenHeight: screenHeight)
-        for elapsed in [0.0, 37.0, 512.0, 9_999.0] {
-            let positions = placements.map {
-                layout.position(offset: $0.trackOffset, elapsed: elapsed, speed: 26,
-                                screenWidth: screenWidth)
-            }.sorted()
-            var gaps = zip(positions, positions.dropFirst()).map { $1 - $0 }
-            if let first = positions.first, let last = positions.last {
-                gaps.append(track - last + first)
-            }
-            for gap in gaps {
-                h.expect(gap >= layout.config.spriteSize - 0.01,
-                         "spacing decayed to \(gap) after \(elapsed)s of travel")
-            }
+        // Corners must actually be in their corner.
+        let size = 72.0
+        let cases: [(DisplayMode, Bool, Bool)] = [
+            (.clusterTopLeft, true, true), (.clusterTopRight, false, true),
+            (.clusterBottomLeft, true, false), (.clusterBottomRight, false, false),
+        ]
+        for (mode, expectLeft, expectTop) in cases {
+            let first = Layout(mode: mode).place([make(id: "a")], screenWidth: screenWidth,
+                                                 screenHeight: screenHeight)[0]
+            h.equal(first.anchor.x < screenWidth / 2, expectLeft, "\(mode): horizontal corner")
+            h.equal(first.anchor.y + size > screenHeight / 2, expectTop, "\(mode): vertical corner")
         }
-
-        h.expect(layout.screenX(position: 0) < 0,
-                 "a sprite at the track start is just off the left edge")
     }
+}
 
-    h.suite("Marquee vertical band") { h in
-        let layout = Layout()
-        for height in [600.0, 768.0, 982.0, 1440.0] {
-            let placements = layout.place((0..<4).map { make(id: "s\($0)", startedAt: $0) },
-                                          screenWidth: screenWidth, screenHeight: height)
-            for placement in placements {
-                let top = placement.baseY + placement.verticalAmplitude
-                    + layout.config.spriteSize
-                h.expect(top <= height + 0.001,
-                         "height=\(height): sprite tops out at \(top), above the screen")
-                h.expect(placement.baseY - placement.verticalAmplitude >= -0.001,
-                         "height=\(height): sprite drops below the screen")
-                h.expect(placement.verticalAmplitude > 0,
-                         "height=\(height): sprites need room to wander")
-            }
-        }
+// MARK: - stability
 
-        // Sprites ride near the top, which is what "marquee across the top" means.
-        let placements = layout.place([make(id: "a")],
-                                      screenWidth: screenWidth, screenHeight: screenHeight)
-        h.expect(placements[0].baseY > screenHeight * 0.7,
-                 "the band sits in the upper part of the screen")
-    }
+private func runStabilityTests(_ h: Harness) {
+    h.suite("Placement stability") { h in
+        for mode in DisplayMode.allCases {
+            let layout = Layout(mode: mode)
+            let before = [
+                make(id: "a", state: .running, startedAt: 1),
+                make(id: "b", state: .running, startedAt: 2),
+                make(id: "c", state: .running, startedAt: 3),
+            ]
+            let after = [
+                make(id: "a", state: .running, startedAt: 1),
+                make(id: "b", state: .attention, startedAt: 2),
+                make(id: "c", state: .done, startedAt: 3),
+            ]
+            h.equal(layout.place(before, screenWidth: screenWidth, screenHeight: screenHeight),
+                    layout.place(after, screenWidth: screenWidth, screenHeight: screenHeight),
+                    "\(mode): a state change must not move a sprite")
 
-    h.suite("Marquee phase") { h in
-        let layout = Layout()
-        let placements = layout.place((0..<8).map { make(id: "s\($0)", startedAt: $0) },
-                                      screenWidth: screenWidth, screenHeight: screenHeight)
-
-        let phases = Set(placements.map { ($0.phase * 1000).rounded() })
-        h.expect(phases.count >= 7,
-                 "phases must differ or every sprite bobs in unison (got \(phases.count)/8)")
-        for placement in placements {
-            h.expect(placement.phase >= 0 && placement.phase < 2 * .pi + 0.001,
-                     "phase \(placement.phase) is outside one turn")
+            let slots = layout.place((0..<7).map { make(id: "s\($0)", startedAt: $0) },
+                                     screenWidth: screenWidth, screenHeight: screenHeight)
+                .map(\.slot).sorted()
+            h.equal(slots, Array(0..<7), "\(mode): slots are contiguous from zero")
         }
 
         h.equal(Layout.phase(for: "session-abc"), Layout.phase(for: "session-abc"),
                 "phase is stable for a session, so a restart does not reshuffle motion")
         h.expect(Layout.phase(for: "session-abc") != Layout.phase(for: "session-abd"),
                  "different sessions get different phases")
-    }
-
-    h.suite("Layout stability") { h in
-        let layout = Layout()
-        let mixed = [
-            make(id: "first", state: .done, startedAt: 1),
-            make(id: "second", state: .attention, startedAt: 2),
-            make(id: "third", state: .running, startedAt: 3),
-        ]
-        let ordered = layout.place(mixed, screenWidth: screenWidth, screenHeight: screenHeight)
-            .sorted { $0.trackOffset < $1.trackOffset }
-            .map(\.sessionID)
-        h.equal(ordered, ["first", "second", "third"],
-                "track order follows start time, not priority")
-
-        let before = [
-            make(id: "a", state: .running, startedAt: 1),
-            make(id: "b", state: .running, startedAt: 2),
-            make(id: "c", state: .running, startedAt: 3),
-        ]
-        let after = [
-            make(id: "a", state: .running, startedAt: 1),
-            make(id: "b", state: .attention, startedAt: 2),
-            make(id: "c", state: .done, startedAt: 3),
-        ]
-        h.equal(layout.place(before, screenWidth: screenWidth, screenHeight: screenHeight),
-                layout.place(after, screenWidth: screenWidth, screenHeight: screenHeight),
-                "a state change does not move a sprite along the track")
-
-        let slots = layout.place((0..<7).map { make(id: "s\($0)", startedAt: $0) },
-                                 screenWidth: screenWidth, screenHeight: screenHeight)
-            .map(\.slot).sorted()
-        h.equal(slots, Array(0..<7), "slots are contiguous from zero")
     }
 }

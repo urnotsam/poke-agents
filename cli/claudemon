@@ -76,6 +76,7 @@ def cmd_doctor(args):
 
     running = _overlay_running()
     _check("overlay running", running, "Claudemon.app")
+    print("  %-22s %s" % ("display mode", _display_mode()))
 
     if paths.disabled():
         print("\n  CLAUDEMON_DISABLE is set — the hook is short-circuiting.")
@@ -91,6 +92,17 @@ def cmd_doctor(args):
 def _check(label, ok, detail=""):
     print("  %-22s %s  %s" % (label, "ok  " if ok else "MISSING", detail))
     return bool(ok)
+
+
+def _display_mode():
+    """Read the overlay's chosen arrangement, which it stores next to the state."""
+    import json
+    path = os.path.join(paths.home(), "config.json")
+    try:
+        with open(path) as fh:
+            return json.load(fh).get("mode", "marqueeTop (default)")
+    except (OSError, ValueError):
+        return "marqueeTop (default)"
 
 
 def _overlay_running():
