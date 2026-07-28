@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 assets/sprites/
+
+# Local planning notes, deliberately not published
+docs/superpowers/
