@@ -6,6 +6,7 @@
     claudemon doctor       report what is and is not working
     claudemon ls           list live session records
     claudemon fetch        download and cache sprites
+    claudemon adopt        show the real sessions herdr already knows about
     claudemon simulate     write fake sessions so the overlay can be exercised
 """
 
@@ -22,7 +23,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
-from claudemon import events, paths, process, settings, species, sprites, state  # noqa: E402
+from claudemon import events, labels, paths, process, settings, species, sprites, state  # noqa: E402
 
 HOOK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "hook", "claudemon_hook.py")
@@ -207,6 +208,124 @@ def _cached_species():
             for f in files if f.endswith((".gif", ".png"))}
 
 
+# --------------------------------------------------------------------------- adopt
+
+# herdr's vocabulary mapped onto ours. "blocked" is the one that matters most:
+# it means the agent is waiting on the user, which is exactly "needs attention".
+_HERDR_STATES = {
+    "working": events.RUNNING,
+    "blocked": events.ATTENTION,
+    "idle": events.DONE,
+    "done": events.DONE,
+    "unknown": events.RUNNING,
+}
+
+
+def cmd_adopt(args):
+    """Publish sprites for the Claude sessions herdr already knows about.
+
+    The hook only learns about a session when that session next fires an event,
+    so a freshly installed hook shows nothing until you type something. This
+    reads herdr's live agent list instead, which means real sessions with real
+    labels appear immediately and without touching any settings file.
+    """
+    if not _herdr_path():
+        return _fail("herdr not found; adopt needs it to enumerate sessions")
+
+    if not args.watch:
+        count = _adopt_once()
+        print("Adopted %d session(s)." % count)
+        return 0
+
+    print("Watching herdr every %.1fs. Ctrl-C to stop." % args.interval)
+    stop = {"now": False}
+
+    def _stop(_signum, _frame):
+        stop["now"] = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    adopted = set()
+    try:
+        while not stop["now"]:
+            adopted |= set(_adopt_once(return_ids=True) or [])
+            for _ in range(int(max(1, args.interval / 0.2))):
+                if stop["now"]:
+                    break
+                time.sleep(0.2)
+    finally:
+        if args.cleanup:
+            for sid in adopted:
+                state.delete(paths.sessions_dir(), sid)
+            print("\nRemoved %d adopted session(s)." % len(adopted))
+        else:
+            print("\nLeaving %d adopted session(s) in place." % len(adopted))
+    return 0
+
+
+def _adopt_once(return_ids=False):
+    directory = paths.sessions_dir()
+    result = _herdr_json(["agent", "list"]) or {}
+    agents = result.get("agents", [])
+
+    now = int(time.time())
+    ids = []
+    for agent in agents:
+        pane = agent.get("pane_id")
+        if not pane:
+            continue
+
+        info = _herdr_json(["pane", "process-info", "--pane", pane]) or {}
+        pid = info.get("process_info", {}).get("foreground_process_group_id")
+        if not isinstance(pid, int) or pid <= 0:
+            continue
+
+        session_id = "herdr-" + pane.replace(":", "-")
+        ids.append(session_id)
+
+        existing = state.read(directory, session_id)
+        if existing is None:
+            taken = {r.species for r in state.read_all(directory)}
+            pick = species.assign(session_id, taken=taken)
+            started, name, shiny = now, pick.name, pick.shiny
+        else:
+            started, name, shiny = existing.started_at, existing.species, existing.shiny
+
+        state.write(directory, state.SessionRecord(
+            session_id=session_id,
+            label=_adopt_label(agent),
+            cwd=agent.get("cwd") or "",
+            species=name,
+            shiny=shiny,
+            state=_HERDR_STATES.get(agent.get("agent_status"), events.RUNNING),
+            pid=pid,
+            tty=None,
+            terminal="herdr",
+            started_at=started,
+            updated_at=now,
+            last_tool=None,
+        ))
+
+    return ids if return_ids else len(ids)
+
+
+def _adopt_label(agent):
+    """Prefer what the session is actually doing over where it lives."""
+    title = (agent.get("terminal_title_stripped") or "").strip()
+    if title:
+        return labels.format_label(display_name=title, repo=None, branch=None,
+                                   is_worktree=False, cwd_basename="")
+    return labels.derive(agent.get("cwd") or "")
+
+
+def _herdr_path():
+    for path in ("/opt/homebrew/bin/herdr", "/usr/local/bin/herdr"):
+        if os.path.exists(path):
+            return path
+    return None
+
+
 # --------------------------------------------------------------------------- simulate
 
 def cmd_simulate(args):
@@ -219,12 +338,19 @@ def cmd_simulate(args):
     rng = random.Random(args.seed)
     states = args.states or list(events.STATES)
 
-    # Borrow this session's terminal identity so click-to-focus is exercisable
-    # against a real pane instead of being stubbed out.
-    tty, claude_pid = (_current_tty(), _claude_pid()) if args.attach else (None, None)
-    if args.attach and not claude_pid:
-        print("warning: no claude ancestor found; clicks will have no target",
-              file=sys.stderr)
+    # Borrow real terminal identities so click-to-focus is exercisable against
+    # real panes. Cycling through every live session rather than reusing one
+    # means clicking different sprites focuses different places, which is the
+    # only way this actually tests anything.
+    tty = _current_tty() if args.attach else None
+    pids = _focusable_pids() if args.attach else []
+    if args.attach:
+        if pids:
+            print("Attaching to %d live session(s): %s"
+                  % (len(pids), ", ".join(str(p) for p in pids)))
+        else:
+            print("warning: no focusable sessions found; clicks will have no target",
+                  file=sys.stderr)
 
     created = []
     now = int(time.time())
@@ -239,7 +365,7 @@ def cmd_simulate(args):
             species=pick.name,
             shiny=pick.shiny,
             state=states[index % len(states)],
-            pid=claude_pid or os.getpid(),
+            pid=pids[index % len(pids)] if pids else os.getpid(),
             tty=tty,
             terminal="Apple_Terminal" if tty else "simulated",
             started_at=now - rng.randint(10, 3600),
@@ -285,14 +411,49 @@ def _current_tty():
     return None
 
 
-def _claude_pid():
-    """The pid of the claude process hosting this invocation, if any.
+def _focusable_pids():
+    """Claude pids that something can actually focus.
 
-    This is the same value the hook records, and the key that herdr's
-    foreground_process_group_id is matched against.
+    Prefers the pids herdr reports for its panes, since that is what the overlay
+    matches against. Falls back to this invocation's own claude ancestor.
     """
-    info = process.find_claude(os.getpid())
-    return info.pid if info else None
+    pids = []
+    for pane in _herdr(["pane", "list"], "panes", "pane_id"):
+        info = _herdr_json(["pane", "process-info", "--pane", pane])
+        group = (info or {}).get("process_info", {}).get("foreground_process_group_id")
+        if isinstance(group, int) and group > 0:
+            pids.append(group)
+
+    if not pids:
+        info = process.find_claude(os.getpid())
+        if info:
+            pids.append(info.pid)
+    return pids
+
+
+def _herdr_json(args):
+    import subprocess
+    for path in ("/opt/homebrew/bin/herdr", "/usr/local/bin/herdr"):
+        if not os.path.exists(path):
+            continue
+        try:
+            out = subprocess.run([path] + args, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            return None
+        try:
+            import json
+            return json.loads(out.stdout.decode()).get("result")
+        except (ValueError, UnicodeDecodeError):
+            return None
+    return None
+
+
+def _herdr(args, collection, key):
+    result = _herdr_json(args) or {}
+    return [item.get(key) for item in result.get(collection, []) if item.get(key)]
 
 
 _FAKE_LABELS = [
@@ -363,6 +524,14 @@ def build_parser():
     p.add_argument("--all", action="store_true", help="fetch the entire roster")
     p.add_argument("--force", action="store_true", help="re-download cached sprites")
     p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("adopt", help="show the real sessions herdr already knows about")
+    p.add_argument("--watch", action="store_true",
+                   help="keep refreshing so sprite states track herdr")
+    p.add_argument("--interval", type=float, default=2.0)
+    p.add_argument("--cleanup", action="store_true",
+                   help="remove adopted sessions when watching stops")
+    p.set_defaults(func=cmd_adopt)
 
     p = sub.add_parser("simulate", help="write fake sessions for testing")
     p.add_argument("--count", type=int, default=6)

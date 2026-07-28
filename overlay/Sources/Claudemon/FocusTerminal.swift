@@ -43,7 +43,59 @@ enum HerdrFocus {
     static func focus(_ record: SessionRecord) -> Bool {
         guard let pid = record.pid, pid > 0 else { return false }
         guard let paneID = paneID(forPID: pid) else { return false }
-        return run(["agent", "focus", paneID]) != nil
+        guard run(["agent", "focus", paneID]) != nil else { return false }
+
+        // Switching the pane only rearranges herdr's own UI. If another
+        // application is frontmost, nothing visible happens until the window
+        // hosting herdr is raised too.
+        raiseHost()
+        return true
+    }
+
+    /// Bring the window that renders herdr's panes to the front.
+    ///
+    /// herdr is a server plus a client; the client draws the panes inside an
+    /// ordinary terminal window. Finding the client's controlling tty and
+    /// raising the terminal tab that owns it is what actually puts the session
+    /// in front of the user.
+    private static func raiseHost() {
+        guard let tty = clientTTY() else { return }
+        TerminalAppFocus.focus(tty: tty)
+    }
+
+    /// The controlling tty of the herdr client, ignoring the headless server.
+    static func clientTTY() -> String? {
+        guard let output = shell("/bin/ps", ["-eo", "tty=,args="]) else { return nil }
+
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1,
+                                   omittingEmptySubsequences: true)
+            guard parts.count == 2 else { continue }
+            let tty = String(parts[0])
+            let args = parts[1].trimmingCharacters(in: .whitespaces)
+
+            guard !tty.hasPrefix("?") else { continue }
+            let command = args.split(separator: " ").first.map(String.init) ?? ""
+            guard (command as NSString).lastPathComponent == "herdr" else { continue }
+            // `herdr server` is the daemon and owns no window.
+            guard !args.contains(" server") else { continue }
+
+            return tty.hasPrefix("/") ? tty : "/dev/" + tty
+        }
+        return nil
+    }
+
+    private static func shell(_ path: String, _ arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8)
     }
 
     /// The pane whose foreground process group is this session's `claude`
@@ -104,7 +156,12 @@ enum HerdrFocus {
 enum TerminalAppFocus {
     static func focus(_ record: SessionRecord) -> Bool {
         guard let tty = record.tty, !tty.isEmpty else { return false }
-        return runScript(source(forTTY: tty))
+        return focus(tty: tty)
+    }
+
+    @discardableResult
+    static func focus(tty: String) -> Bool {
+        runScript(source(forTTY: tty))
     }
 
     private static func source(forTTY tty: String) -> String {
