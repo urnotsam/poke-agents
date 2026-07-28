@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 
 from pokeagents import process
@@ -72,6 +73,93 @@ class TestFindClaudeProcess(unittest.TestCase):
     def test_missing_process_ends_the_walk(self):
         tree = FakeTree({5: process.ProcInfo(pid=5, ppid=999, comm="zsh", tty="??")})
         self.assertIsNone(process.find_claude(start_pid=5, lookup=tree))
+
+
+class TestInfrastructureIsNotASession(unittest.TestCase):
+    """Claude Code's background plumbing is named `claude` too.
+
+    Attributing a session to it is wrong twice over: the pid cannot be focused,
+    and every background session shares it, so deduplicating by pid would show
+    one sprite for all of them.
+    """
+
+    def tree(self, comm):
+        return FakeTree({
+            10: process.ProcInfo(pid=10, ppid=20, comm="python3", tty="??"),
+            20: process.ProcInfo(pid=20, ppid=1, comm=comm, tty="??"),
+        })
+
+    def test_the_pty_host_is_skipped(self):
+        self.assertIsNone(process.find_agent(
+            10, ("claude",), self.tree("claude --bg-pty-host /tmp/x.sock")))
+
+    def test_the_spare_host_is_skipped(self):
+        self.assertIsNone(process.find_agent(
+            10, ("claude",), self.tree("claude bg-spare /tmp/x.sock")))
+
+    def test_the_daemon_is_skipped(self):
+        self.assertIsNone(process.find_agent(
+            10, ("claude",), self.tree("claude daemon run --origin transient")))
+
+    def test_a_real_session_process_is_still_found(self):
+        found = process.find_agent(10, ("claude",), self.tree("claude"))
+        self.assertIsNotNone(found)
+        self.assertEqual(found.pid, 20)
+
+
+class TestFindSessionProcess(unittest.TestCase):
+    """Resolution by session id, which is exact where the tree walk guesses."""
+
+    def test_finds_this_process_by_its_own_session_id(self):
+        # Build a real process whose argv carries the flag, and find it.
+        import subprocess, time
+        marker = "test-session-%d" % os.getpid()
+        # `sleep` rejects extra arguments and exits at once; python keeps them
+        # in argv and stays alive, which is what this needs.
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)",
+             "--session-id", marker],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.4)
+            found = process.find_session_process(marker)
+            self.assertIsNotNone(found, "did not find a process carrying the flag")
+            self.assertEqual(found.pid, child.pid)
+        finally:
+            child.kill()
+            child.wait()
+
+    def test_an_unknown_session_finds_nothing(self):
+        self.assertIsNone(
+            process.find_session_process("00000000-0000-0000-0000-000000000000"))
+
+    def test_a_short_or_empty_id_is_refused(self):
+        # Too short to be distinctive; matching on it would hit anything.
+        self.assertIsNone(process.find_session_process(""))
+        self.assertIsNone(process.find_session_process("abc"))
+
+    def test_the_id_must_appear_as_an_argument(self):
+        # The pty-host daemon carries the id inside a socket path. Matching the
+        # bare id anywhere in the command line picks the daemon over the session.
+        import subprocess, time
+        marker = "socketonly-%d" % os.getpid()
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)",
+             "/tmp/%s.sock" % marker],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.4)
+            self.assertIsNone(process.find_session_process(marker),
+                              "matched an id that was only part of a path")
+        finally:
+            child.kill()
+            child.wait()
+
+    def test_it_does_not_match_the_calling_process(self):
+        # The caller's own argv can mention the id, which would otherwise make
+        # every lookup return the hook itself.
+        found = process.find_session_process("x" * 40)
+        self.assertFalse(found and found.pid == os.getpid())
 
 
 class TestNormalizeTty(unittest.TestCase):

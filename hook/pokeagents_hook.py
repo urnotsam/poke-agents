@@ -58,10 +58,15 @@ def main() -> int:
             if index + 1 < len(sys.argv):
                 payload["harness"] = sys.argv[index + 1]
 
-        runner.apply_event(
-            paths.sessions_dir(), payload,
-            resolve_proc=lambda: process.find_agent(os.getpid(),
-                                                    harness.agent_commands()))
+        def resolve_proc():
+            # Ask by session id first: it is exact, and it is the only way to
+            # find a background agent, whose binary is not named `claude`.
+            found = process.find_session_process(payload.get("session_id") or "")
+            if found is not None:
+                return found
+            return process.find_agent(os.getpid(), harness.agent_commands())
+
+        runner.apply_event(paths.sessions_dir(), payload, resolve_proc=resolve_proc)
     except Exception as exc:  # noqa: BLE001 - a hook must never propagate
         _log("pokeagents hook error: %r" % (exc,))
     return 0
