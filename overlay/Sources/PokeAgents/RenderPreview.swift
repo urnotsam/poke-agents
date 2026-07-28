@@ -11,11 +11,13 @@ import PokeAgentsCore
 ///
 /// Draws one row per sprite size and one column per state.
 enum RenderPreview {
+    // The three states a sprite is normally drawn in. Background agents are
+    // hidden unless you turn them on, so showing one here would imply it is
+    // part of the ordinary display.
     private static let samples: [(SessionState, String, String, Bool)] = [
         (.running, "widgets-api", "charmander", true),
         (.attention, "widgets@hotfix", "psyduck", true),
         (.done, "data-pipeline", "snorlax", true),
-        (.running, "nightly-batch", "porygon", false),
     ]
 
     static func run(to path: String) -> Never {

@@ -18,8 +18,8 @@ bar.*
 
 ![Sprite states at three sizes](docs/images/states-and-sizes.png)
 
-*States, left to right: `running`, `attention`, `done`, and a background agent
-with no terminal to jump to. Sizes, top to bottom: large, medium, small.*
+*States, left to right: `running`, `attention`, `done`. Sizes, top to bottom:
+large, medium, small.*
 
 > Both images are generated, not captured. The wallpaper and window shapes are
 > drawn by the app in an offscreen render, the session names are invented, and no
