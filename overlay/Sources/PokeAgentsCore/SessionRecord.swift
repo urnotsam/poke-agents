@@ -37,17 +37,24 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public let updatedAt: Int
     public let lastTool: String?
 
+    /// False when there is nowhere to jump to. A background agent has no
+    /// controlling terminal at all, so its sprite is worth showing but cannot
+    /// be clicked through to.
+    public let focusable: Bool
+
     enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
         case label, cwd, species, shiny, state, pid, tty, terminal
         case startedAt = "started_at"
         case updatedAt = "updated_at"
         case lastTool = "last_tool"
+        case focusable
     }
 
     public init(sessionID: String, label: String, cwd: String, species: String,
                 shiny: Bool, state: SessionState, pid: Int32?, tty: String?,
-                terminal: String?, startedAt: Int, updatedAt: Int, lastTool: String?) {
+                terminal: String?, startedAt: Int, updatedAt: Int, lastTool: String?,
+                focusable: Bool = true) {
         self.sessionID = sessionID
         self.label = label
         self.cwd = cwd
@@ -60,6 +67,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.startedAt = startedAt
         self.updatedAt = updatedAt
         self.lastTool = lastTool
+        self.focusable = focusable
     }
 
     /// True for a record synthesised by `poke-agents adopt` rather than written
@@ -103,5 +111,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         startedAt = try c.decodeIfPresent(Int.self, forKey: .startedAt) ?? 0
         updatedAt = try c.decodeIfPresent(Int.self, forKey: .updatedAt) ?? 0
         lastTool = try c.decodeIfPresent(String.self, forKey: .lastTool)
+        // Absent in records written by an older version, which were all
+        // focusable as far as they knew.
+        focusable = try c.decodeIfPresent(Bool.self, forKey: .focusable) ?? true
     }
 }

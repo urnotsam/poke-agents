@@ -24,7 +24,7 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 _FIELDS = (
     "session_id", "label", "cwd", "species", "shiny", "state", "pid", "tty",
-    "terminal", "started_at", "updated_at", "last_tool",
+    "terminal", "started_at", "updated_at", "last_tool", "focusable",
 )
 
 # Fields without which a sprite cannot be drawn at all. Everything else is
@@ -46,6 +46,11 @@ class SessionRecord:
     started_at: int
     updated_at: int
     last_tool: Optional[str] = None
+
+    # False for a session with nowhere to jump to — a background agent has no
+    # controlling terminal at all. Defaults true so a record written by an older
+    # version is not mistaken for a headless one.
+    focusable: bool = True
 
 
 def _safe_path(directory: str, session_id: str) -> str:
@@ -140,6 +145,8 @@ def _load(path: str) -> Optional[SessionRecord]:
 
     # Drop unknown keys so a newer writer cannot break an older reader.
     known = {k: raw.get(k) for k in _FIELDS}
+    if known.get("focusable") is None:
+        known["focusable"] = True
     try:
         return SessionRecord(**known)
     except TypeError:

@@ -106,6 +106,22 @@ class TestReadAll(StateDirTestCase):
         open(os.path.join(self.dir, "README.txt"), "w").close()
         self.assertEqual(state.read_all(self.dir), [])
 
+    def test_a_record_without_the_flag_is_treated_as_focusable(self):
+        # Records written before the flag existed described sessions that were
+        # focusable as far as anyone knew; defaulting to False would mark every
+        # one of them with a badge.
+        os.makedirs(self.dir, exist_ok=True)
+        payload = dict(session_id="old", label="x", cwd="/tmp", species="pikachu",
+                       shiny=False, state="running", pid=1, tty="/dev/ttys001",
+                       terminal=None, started_at=1, updated_at=1, last_tool=None)
+        with open(os.path.join(self.dir, "old.json"), "w") as fh:
+            json.dump(payload, fh)
+        self.assertTrue(state.read_all(self.dir)[0].focusable)
+
+    def test_the_flag_round_trips(self):
+        state.write(self.dir, self.record(session_id="h", focusable=False))
+        self.assertFalse(state.read(self.dir, "h").focusable)
+
     def test_tolerates_unknown_extra_fields(self):
         os.makedirs(self.dir, exist_ok=True)
         payload = dict(

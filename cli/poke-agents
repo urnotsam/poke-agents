@@ -439,6 +439,9 @@ def _adopt_once(adapters):
                 started_at=started,
                 updated_at=now,
                 last_tool=None,
+                # The adapter that discovered it can address it, whether or not
+                # a tty is involved.
+                focusable=True,
             ))
     return ids
 

@@ -14,8 +14,10 @@ final class SpriteView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let bubble = NSTextField(labelWithString: "!")
     private let sleepMark = NSTextField(labelWithString: "zZz")
+    private let headlessBadge = HeadlessBadge()
 
     private var state: SessionState = .running
+    private var focusable = true
 
     /// Forwarded to the window. Declared here because the view is what the
     /// event system hit-tests first.
@@ -30,6 +32,7 @@ final class SpriteView: NSView {
         setUpLabel()
         setUpBubble()
         setUpSleepMark()
+        setUpHeadlessBadge()
     }
 
     required init?(coder: NSCoder) { nil }
@@ -42,6 +45,9 @@ final class SpriteView: NSView {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
         imageView.wantsLayer = true
+        // Required on macOS before Core Image filters on a layer do anything at
+        // all; without it the headless greyscale silently has no effect.
+        imageView.layerUsesCoreImageFilters = true
         // Pixel art must not be smoothed; interpolation is what makes these
         // sprites look cheap at any size other than native.
         imageView.layer?.magnificationFilter = .nearest
@@ -90,10 +96,20 @@ final class SpriteView: NSView {
         addSubview(sleepMark)
     }
 
+    private func setUpHeadlessBadge() {
+        let size = max(12, metrics.sprite * 0.26)
+        headlessBadge.frame = NSRect(x: metrics.sideInset - size * 0.35,
+                                     y: metrics.bottomInset - size * 0.15,
+                                     width: size, height: size)
+        headlessBadge.isHidden = true
+        addSubview(headlessBadge)
+    }
+
     // MARK: state
 
     func apply(record: SessionRecord, image: NSImage) {
         state = record.state
+        focusable = record.focusable
         label.stringValue = record.label
         imageView.image = image
         imageView.animates = record.state.isAnimated
@@ -122,6 +138,22 @@ final class SpriteView: NSView {
             sleepMark.isHidden = false
             imageView.layer?.shadowOpacity = 0
         }
+
+        applyHeadlessMark()
+    }
+
+    /// A session with nowhere to jump to gets a drawn badge.
+    ///
+    /// A badge rather than a colour treatment, for two reasons. The other visual
+    /// channels are already spoken for — opacity means `done`, the glow and
+    /// bubble mean `attention` — and a Core Image layer filter, the obvious way
+    /// to desaturate, is applied by the compositor, so it would appear on screen
+    /// but not in any offscreen render, including the documentation images.
+    /// Something drawn shows up everywhere and does not depend on colour vision.
+    private func applyHeadlessMark() {
+        headlessBadge.isHidden = focusable
+        label.layer?.borderWidth = focusable ? 0 : 1
+        label.layer?.borderColor = NSColor.white.withAlphaComponent(0.4).cgColor
     }
 
     /// Advances per-frame effects. Driven by the app's shared animation timer so
@@ -149,5 +181,32 @@ final class SpriteView: NSView {
     /// Control-click is the other way to ask for a context menu.
     override func otherMouseDown(with event: NSEvent) {
         super.otherMouseDown(with: event)
+    }
+}
+
+
+/// A small "no terminal" mark: a circle with a slash through it.
+///
+/// Drawn rather than an emoji or a glyph so it renders identically at every
+/// sprite size and needs no font to be present.
+private final class HeadlessBadge: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let inset = bounds.insetBy(dx: 1.5, dy: 1.5)
+
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        NSBezierPath(ovalIn: bounds).fill()
+
+        let ring = NSBezierPath(ovalIn: inset)
+        ring.lineWidth = max(1.2, bounds.width * 0.12)
+        NSColor.white.withAlphaComponent(0.85).setStroke()
+        ring.stroke()
+
+        // The slash, drawn corner to corner across the ring.
+        let slash = NSBezierPath()
+        let offset = inset.width * 0.18
+        slash.move(to: NSPoint(x: inset.minX + offset, y: inset.maxY - offset))
+        slash.line(to: NSPoint(x: inset.maxX - offset, y: inset.minY + offset))
+        slash.lineWidth = ring.lineWidth
+        slash.stroke()
     }
 }

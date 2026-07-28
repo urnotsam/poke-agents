@@ -144,6 +144,49 @@ class TestLazyProcessResolution(RunnerTestCase):
         self.assertEqual(self.current().pid, PROC.pid)
 
 
+class TestFocusable(RunnerTestCase):
+    """A background agent has no controlling terminal, so there is nothing to
+    raise. The record says so, and the sprite is marked."""
+
+    def test_a_session_with_a_tty_is_focusable(self):
+        self.fire("SessionStart")
+        self.assertTrue(self.current().focusable)
+
+    def test_a_session_without_a_tty_is_not(self):
+        headless = process.ProcInfo(pid=4242, ppid=1, comm="claude", tty="??")
+        runner.apply_event(
+            self.dir,
+            {"hook_event_name": "SessionStart", "session_id": "sid-1", "cwd": self.cwd},
+            proc=headless)
+        record = self.current()
+        self.assertIsNone(record.tty)
+        self.assertFalse(record.focusable)
+
+    def test_a_record_with_no_process_at_all_is_not_focusable(self):
+        runner.apply_event(
+            self.dir,
+            {"hook_event_name": "SessionStart", "session_id": "sid-1", "cwd": self.cwd},
+            proc=None)
+        self.assertFalse(self.current().focusable)
+
+    def test_it_becomes_focusable_once_a_tty_turns_up(self):
+        runner.apply_event(
+            self.dir,
+            {"hook_event_name": "SessionStart", "session_id": "sid-1", "cwd": self.cwd},
+            proc=None)
+        self.assertFalse(self.current().focusable)
+        self.fire("Stop")
+        self.assertTrue(self.current().focusable)
+
+    def test_the_flag_survives_a_round_trip(self):
+        headless = process.ProcInfo(pid=4242, ppid=1, comm="claude", tty="??")
+        runner.apply_event(
+            self.dir,
+            {"hook_event_name": "SessionStart", "session_id": "sid-1", "cwd": self.cwd},
+            proc=headless)
+        self.assertFalse(state.read(self.dir, "sid-1").focusable)
+
+
 class TestResilience(RunnerTestCase):
     def test_event_for_unknown_session_adopts_it_rather_than_dropping_it(self):
         # Hooks installed mid-session mean the first event may not be SessionStart.

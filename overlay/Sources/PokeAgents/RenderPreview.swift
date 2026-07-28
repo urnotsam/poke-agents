@@ -11,10 +11,11 @@ import PokeAgentsCore
 ///
 /// Draws one row per sprite size and one column per state.
 enum RenderPreview {
-    private static let samples: [(SessionState, String, String)] = [
-        (.running, "widgets-api", "charmander"),
-        (.attention, "widgets@hotfix", "psyduck"),
-        (.done, "data-pipeline", "snorlax"),
+    private static let samples: [(SessionState, String, String, Bool)] = [
+        (.running, "widgets-api", "charmander", true),
+        (.attention, "widgets@hotfix", "psyduck", true),
+        (.done, "data-pipeline", "snorlax", true),
+        (.running, "nightly-batch", "porygon", false),
     ]
 
     static func run(to path: String) -> Never {
@@ -40,7 +41,8 @@ enum RenderPreview {
                 let record = SessionRecord(
                     sessionID: "preview-\(size.rawValue)-\(index)", label: sample.1,
                     cwd: "/tmp", species: sample.2, shiny: false, state: sample.0,
-                    pid: 1, tty: nil, terminal: nil, startedAt: 0, updatedAt: 0, lastTool: nil)
+                    pid: 1, tty: nil, terminal: nil, startedAt: 0, updatedAt: 0,
+                    lastTool: nil, focusable: sample.3)
 
                 let view = SpriteView(metrics: metrics)
                 view.apply(record: record, image: cache.image(for: record))

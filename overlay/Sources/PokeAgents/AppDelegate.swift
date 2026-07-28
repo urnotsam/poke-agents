@@ -129,6 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Diagnostics.log("click on unknown session \(sessionID)")
             return
         }
+        guard record.focusable else {
+            // Nothing to raise; say so rather than spawning adapters that will
+            // all decline.
+            Diagnostics.log("click label=\(record.label) headless, nothing to focus")
+            windows[sessionID]?.shake()
+            return
+        }
+
         // Focusing spawns subprocesses and may run AppleScript. On the main
         // thread that would freeze the overlay, animation included, for as long
         // as the adapter takes.
@@ -164,7 +172,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(detail)
         menu.addItem(.separator())
 
-        menu.addItem(item("Focus Session", #selector(menuFocus(_:)), sessionID))
+        let focus = item("Focus Session", #selector(menuFocus(_:)), sessionID)
+        if !record.focusable {
+            // Saying why beats an item that silently does nothing.
+            focus.title = "No terminal to focus (background agent)"
+            focus.action = nil
+            focus.isEnabled = false
+        }
+        menu.addItem(focus)
         menu.addItem(item("Copy Working Directory", #selector(menuCopyPath(_:)), sessionID))
         menu.addItem(item("Reveal in Finder", #selector(menuReveal(_:)), sessionID))
         menu.addItem(.separator())
@@ -178,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func subtitle(for record: SessionRecord) -> String {
         var parts = [record.state.rawValue]
+        if !record.focusable { parts.append("headless") }
         if let tool = record.lastTool { parts.append(tool) }
         if record.cwd.isEmpty == false {
             parts.append((record.cwd as NSString).lastPathComponent)

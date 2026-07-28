@@ -80,6 +80,7 @@ def apply_event(directory: str, payload: dict,
         if adopted is not None:
             record.pid = adopted.pid
             record.tty = process.normalize_tty(adopted.tty)
+            record.focusable = bool(record.tty)
 
     record.updated_at = now
 
@@ -95,6 +96,7 @@ def _spawn(directory, session_id, payload, proc, now, harness, reported_pid=None
     cwd = harness.cwd(payload) or os.getcwd()
     taken = {r.species for r in state.read_all(directory)}
     pick = species.assign(session_id, taken=taken)
+    tty = process.normalize_tty(proc.tty) if proc else None
 
     return state.SessionRecord(
         session_id=session_id,
@@ -104,9 +106,12 @@ def _spawn(directory, session_id, payload, proc, now, harness, reported_pid=None
         shiny=pick.shiny,
         state=events.RUNNING,
         pid=reported_pid or (proc.pid if proc else None),
-        tty=process.normalize_tty(proc.tty) if proc else None,
+        tty=tty,
         terminal=payload.get("terminal") or os.environ.get("TERM_PROGRAM"),
         started_at=now,
         updated_at=now,
         last_tool=None,
+        # No controlling terminal means no terminal to raise. A background agent
+        # is a real running session worth seeing; it just cannot be jumped to.
+        focusable=bool(tty),
     )

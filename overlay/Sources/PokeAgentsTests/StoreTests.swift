@@ -190,6 +190,34 @@ func runStoreTests(_ h: Harness) {
                 "output order does not depend on input order")
     }
 
+    h.suite("Focusable flag") { h in
+        withTempDir { dir in
+            record(dir, "normal")
+            h.expect(SessionStore(directory: dir).loadAll().first?.focusable == true,
+                     "a record without the field is focusable, not badged")
+        }
+
+        withTempDir { dir in
+            write(dir, "headless.json", """
+            {"session_id":"headless","label":"batch","cwd":"/tmp","species":"porygon",
+             "shiny":false,"state":"running","pid":1,"started_at":1,"updated_at":1,
+             "focusable":false}
+            """)
+            h.expect(SessionStore(directory: dir).loadAll().first?.focusable == false,
+                     "a headless record decodes as not focusable")
+        }
+
+        withTempDir { dir in
+            write(dir, "explicit.json", """
+            {"session_id":"explicit","label":"x","cwd":"/tmp","species":"eevee",
+             "shiny":false,"state":"running","pid":1,"started_at":1,"updated_at":1,
+             "focusable":true}
+            """)
+            h.expect(SessionStore(directory: dir).loadAll().first?.focusable == true,
+                     "an explicitly focusable record decodes as such")
+        }
+    }
+
     h.suite("Hidden sessions") { h in
         func rec(_ id: String, _ state: SessionState = .running) -> SessionRecord {
             SessionRecord(sessionID: id, label: id, cwd: "/tmp", species: "psyduck",

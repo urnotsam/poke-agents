@@ -170,6 +170,16 @@ art is the fastest way to make it look cheap.
 | `attention` | **The agent is waiting on you** | Fast bob, orange `!` bubble, pulsing glow, label at full brightness |
 | `done` | The turn finished | Static sprite, dimmed to 60%, `zZz` drifting up |
 
+A sprite may also carry a **circle-with-slash badge**, meaning there is no
+terminal to jump to — a background agent (`claude --bg`) has no controlling
+terminal at all. It is still a real running session worth seeing; clicking it
+just shakes, and the right-click menu says why instead of offering a Focus item
+that would do nothing.
+
+The badge is drawn rather than a colour treatment, because the other visual
+channels are already taken: opacity means `done`, the glow and bubble mean
+`attention`. It also means the mark does not depend on colour vision.
+
 `attention` comes from Claude Code's `Notification` hook, which covers both
 permission prompts and idle input requests. It's the state the whole thing exists
 to surface, so it also wins any contest for screen space: if more sprites are
