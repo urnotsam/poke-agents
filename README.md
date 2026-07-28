@@ -1,10 +1,13 @@
 # poke-agents
 
-Your running Claude Code sessions, as Pokémon on your desktop.
+Your running coding agents, as Pokémon on your desktop.
 
 Every session gets a sprite. It wanders your screen while the agent works, stops
 and waves an exclamation mark when the agent needs you, and curls up asleep when
 the turn is done. Click one to jump straight to the terminal running it.
+
+Works with **Claude Code** and **OpenCode** out of the box, and
+[adding another harness](harnesses/README.md) is a small map of event names.
 
 ![Four display modes on a mocked desktop](docs/images/display-modes.png)
 
@@ -37,6 +40,7 @@ starts flashing in the corner of your eye answers that question for free.
 - [Species, and shiny rates](#species-and-shiny-rates)
 - [Clicking a sprite](#clicking-a-sprite)
 - [Adding your terminal](#adding-your-terminal)
+- [Other agent harnesses](#other-agent-harnesses)
 - [Command reference](#command-reference)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
@@ -51,7 +55,7 @@ starts flashing in the corner of your eye answers that question for free.
 - macOS 13 or later
 - Xcode Command Line Tools (`xcode-select --install`) — full Xcode is **not** needed
 - Python 3.8+ (macOS ships this)
-- Claude Code
+- Claude Code or OpenCode
 
 ## Install
 
@@ -61,7 +65,9 @@ cd poke-agents
 
 ./overlay/build.sh            # builds PokeAgents.app (~30s, no Xcode required)
 ./cli/poke-agents fetch --all   # caches the roster (~118 MB, one time)
-./cli/poke-agents install       # wires the hooks and installs terminal adapters
+./cli/poke-agents install       # wires Claude Code hooks + terminal adapters
+# or: ./cli/poke-agents install --harness opencode
+# or: ./cli/poke-agents install --harness all
 open overlay/PokeAgents.app
 ```
 
@@ -282,12 +288,36 @@ Full contract, worked examples, and testing instructions:
 
 Adapters for new terminals are very welcome as PRs.
 
+## Other agent harnesses
+
+Only the *producer* half of poke-agents knows which agent you run. The overlay,
+the layout, the terminal adapters and click-to-focus all read a generic session
+record and never learn what created it.
+
+| Harness | Support |
+|---|---|
+| **Claude Code** | Hooks, installed by `poke-agents install` |
+| **OpenCode** | A plugin, installed by `poke-agents install --harness opencode` |
+| Anything herdr or tmux can see | Works through `adopt` with no integration at all |
+| Goose, Crush | Both run shell commands on events, so they need only an event map — see [harnesses/README.md](harnesses/README.md) |
+
+Each harness maps its own event names onto six canonical ones — `start`,
+`activity`, `tool`, `needs-user`, `idle`, `end` — and that map is the whole
+integration. OpenCode's is arguably better than Claude Code's: `permission.asked`
+says specifically that the agent is blocked on you, where Claude Code's
+`Notification` also covers other cases.
+
+You can also skip harnesses entirely. A session record is a JSON file; anything
+that writes one gets a sprite.
+
+Full contract: **[harnesses/README.md](harnesses/README.md)**.
+
 ## Command reference
 
 | Command | What it does |
 |---|---|
-| `poke-agents install` | Add the hooks to `~/.claude/settings.json` (backs it up first) |
-| `poke-agents uninstall` | Remove exactly the entries it added |
+| `poke-agents install [--harness X]` | Wire up a harness (backs up any config it edits) |
+| `poke-agents uninstall [--harness X]` | Remove exactly what it added |
 | `poke-agents doctor` | Report hooks, state, sprite cache, overlay, and display mode |
 | `poke-agents ls` | List live sessions as a table |
 | `poke-agents adopt [--watch]` | Show sessions your terminal already knows about |

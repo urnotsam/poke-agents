@@ -28,14 +28,17 @@ case "${1:-}" in
     ;;
 
   discover)
-    # Panes whose running command is claude, so tmux users get sprites without
-    # waiting for each session to fire a hook event.
+    # Panes running any known agent, so users get sprites without waiting for
+    # each session to fire an event. Override the list with POKE_AGENTS_AGENTS
+    # if you run something not named here.
+    agents="${POKE_AGENTS_AGENTS:-claude opencode goose crush aider amp codex}"
     tmux list-panes -a -F '#{pane_pid} #{pane_current_command} #{pane_title}' 2>/dev/null \
-      | python3 -c '
-import json, sys
+      | AGENTS="$agents" python3 -c '
+import json, os, sys
+agents = set(os.environ["AGENTS"].split())
 for line in sys.stdin:
     parts = line.split(None, 2)
-    if len(parts) < 2 or parts[1] != "claude":
+    if len(parts) < 2 or parts[1] not in agents:
         continue
     print(json.dumps({"pid": int(parts[0]),
                       "label": (parts[2].strip() if len(parts) > 2 else "")}))

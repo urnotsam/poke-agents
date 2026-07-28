@@ -8,11 +8,10 @@ for click-to-focus therefore has to come from walking up the process tree.
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 MAX_DEPTH = 12
 _PS_TIMEOUT = 2.0
-_TARGET = "claude"
 
 
 @dataclass(frozen=True)
@@ -50,14 +49,19 @@ def lookup_proc(pid: int) -> Optional[ProcInfo]:
         return None
 
 
-def find_claude(start_pid: int,
-                lookup: Callable[[int], Optional[ProcInfo]] = lookup_proc
-                ) -> Optional[ProcInfo]:
-    """Walk up from start_pid to the owning `claude` process.
+def find_agent(start_pid: int,
+               commands: Sequence[str] = ("claude",),
+               lookup: Callable[[int], Optional[ProcInfo]] = lookup_proc
+               ) -> Optional[ProcInfo]:
+    """Walk up from start_pid to the owning agent process.
+
+    Which process names count is the harness's business, not this module's — a
+    harness that can report its own pid never needs this at all.
 
     Bounded by depth and a seen-set so a malformed or cyclic tree cannot hang a
     hook that runs on every event of every session.
     """
+    targets = set(commands)
     seen = set()
     pid = start_pid
 
@@ -69,7 +73,7 @@ def find_claude(start_pid: int,
         info = lookup(pid)
         if info is None:
             return None
-        if os.path.basename(info.comm) == _TARGET:
+        if os.path.basename(info.comm) in targets:
             return info
         pid = info.ppid
 
@@ -84,3 +88,10 @@ def normalize_tty(tty: Optional[str]) -> Optional[str]:
     if not tty or tty.startswith("?"):
         return None
     return tty if tty.startswith("/") else "/dev/" + tty
+
+
+def find_claude(start_pid: int,
+                lookup: Callable[[int], Optional[ProcInfo]] = lookup_proc
+                ) -> Optional[ProcInfo]:
+    """Backwards-compatible alias for the Claude Code case."""
+    return find_agent(start_pid, ("claude",), lookup)

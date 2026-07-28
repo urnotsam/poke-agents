@@ -40,7 +40,7 @@ def main() -> int:
     try:
         import json
 
-        from pokeagents import paths, process, runner
+        from pokeagents import harness, paths, process, runner
 
         if paths.disabled():
             return 0
@@ -50,8 +50,10 @@ def main() -> int:
             return 0
 
         payload = json.loads(raw)
-        runner.apply_event(paths.sessions_dir(), payload,
-                           resolve_proc=lambda: process.find_claude(os.getpid()))
+        runner.apply_event(
+            paths.sessions_dir(), payload,
+            resolve_proc=lambda: process.find_agent(os.getpid(),
+                                                    harness.agent_commands()))
     except Exception as exc:  # noqa: BLE001 - a hook must never propagate
         _log("pokeagents hook error: %r" % (exc,))
     return 0

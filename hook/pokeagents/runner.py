@@ -4,7 +4,7 @@ import os
 import time
 from typing import Callable, Optional
 
-from . import events, labels, process, species, state
+from . import events, harness as harnesses, labels, process, species, state
 
 
 def apply_event(directory: str, payload: dict,
@@ -31,10 +31,18 @@ def apply_event(directory: str, payload: dict,
                 resolved["proc"] = resolve_proc()
         return resolved["proc"]
 
+    def reported_pid():
+        """A harness that knows its own pid can say so and skip the walk."""
+        value = payload.get("pid")
+        return value if isinstance(value, int) and value > 0 else None
+
     if not isinstance(payload, dict):
         return
 
-    transition = events.transition_for(payload.get("hook_event_name"))
+    # Which harness produced this decides only how its event is named; from the
+    # transition onwards nothing downstream can tell the difference.
+    harness = harnesses.get(payload.get("harness"))
+    transition = harness.transition_for(payload.get("hook_event_name"))
     if transition is None:
         return
 
@@ -50,7 +58,8 @@ def apply_event(directory: str, payload: dict,
     existing = state.read(directory, session_id)
 
     if existing is None:
-        record = _spawn(directory, session_id, payload, owning_process(), now)
+        record = _spawn(directory, session_id, payload, owning_process(), now,
+                        harness=harness, reported_pid=reported_pid())
         if record is None:
             return
     else:
@@ -65,6 +74,8 @@ def apply_event(directory: str, payload: dict,
 
     # Re-resolve process details when a record was adopted without them.
     if record.pid is None:
+        record.pid = reported_pid()
+    if record.pid is None:
         adopted = owning_process()
         if adopted is not None:
             record.pid = adopted.pid
@@ -78,7 +89,7 @@ def apply_event(directory: str, payload: dict,
         return
 
 
-def _spawn(directory, session_id, payload, proc, now):
+def _spawn(directory, session_id, payload, proc, now, harness, reported_pid=None):
     """Build a fresh record. Also covers hooks installed mid-session, where the
     first event we ever see is something other than SessionStart."""
     cwd = payload.get("cwd") or os.getcwd()
@@ -92,9 +103,9 @@ def _spawn(directory, session_id, payload, proc, now):
         species=pick.name,
         shiny=pick.shiny,
         state=events.RUNNING,
-        pid=proc.pid if proc else None,
+        pid=reported_pid or (proc.pid if proc else None),
         tty=process.normalize_tty(proc.tty) if proc else None,
-        terminal=os.environ.get("TERM_PROGRAM"),
+        terminal=payload.get("terminal") or os.environ.get("TERM_PROGRAM"),
         started_at=now,
         updated_at=now,
         last_tool=None,

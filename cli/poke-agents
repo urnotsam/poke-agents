@@ -26,12 +26,13 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
-from pokeagents import (atomicio, events, labels, paths, process, settings, species,
-                       sprites, state, terminals)  # noqa: E402
+from pokeagents import (atomicio, events, harness, labels, opencode, paths,
+                       process, settings, species, sprites, state, terminals)  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK_PATH = os.path.join(REPO_ROOT, "hook", "pokeagents_hook.py")
 BUILTIN_TERMINALS = os.path.join(REPO_ROOT, "terminals")
+OPENCODE_PLUGIN = os.path.join(REPO_ROOT, "harnesses", "opencode", "poke-agents.js")
 
 FETCH_TIMEOUT = 20
 
@@ -39,15 +40,38 @@ FETCH_TIMEOUT = 20
 # --------------------------------------------------------------------------- install
 
 def cmd_install(args):
-    path = args.settings or settings.default_path()
-    try:
-        settings.install(path, HOOK_PATH, python=args.python)
-    except settings.SettingsError as exc:
-        return _fail(str(exc))
+    wanted = args.harness
+    installed_any = False
 
-    print("Installed PokeAgents hooks into %s" % path)
-    print("  events: %s" % ", ".join(settings.EVENTS))
-    print("  hook:   %s" % HOOK_PATH)
+    if wanted in ("claude-code", "all"):
+        path = args.settings or settings.default_path()
+        try:
+            settings.install(path, HOOK_PATH, python=args.python)
+        except settings.SettingsError as exc:
+            return _fail(str(exc))
+        installed_any = True
+        print("Claude Code")
+        print("  settings: %s" % path)
+        print("  events:   %s" % ", ".join(settings.EVENTS))
+        print("  hook:     %s" % HOOK_PATH)
+
+    if wanted in ("opencode", "all"):
+        if wanted == "all" and not opencode.is_available():
+            print("\nOpenCode: not installed, skipped")
+        else:
+            try:
+                target = opencode.install(OPENCODE_PLUGIN, HOOK_PATH)
+            except opencode.OpenCodeError as exc:
+                return _fail(str(exc))
+            installed_any = True
+            print("\nOpenCode")
+            print("  plugin:   %s" % target)
+            print("  events:   %s" % ", ".join(sorted(harness.OPENCODE.event_map)))
+            print("  restart OpenCode for it to load the plugin.")
+
+    if not installed_any:
+        return _fail("nothing to install for harness %r" % wanted)
+    print("")
 
     installed, skipped = _install_terminals(force=args.force_terminals)
     if installed:
@@ -100,12 +124,19 @@ def _install_terminals(force=False):
 
 
 def cmd_uninstall(args):
-    path = args.settings or settings.default_path()
-    try:
-        settings.uninstall(path)
-    except settings.SettingsError as exc:
-        return _fail(str(exc))
-    print("Removed PokeAgents hooks from %s" % path)
+    if args.harness in ("claude-code", "all"):
+        path = args.settings or settings.default_path()
+        try:
+            settings.uninstall(path)
+        except settings.SettingsError as exc:
+            return _fail(str(exc))
+        print("Removed hooks from %s" % path)
+
+    if args.harness in ("opencode", "all"):
+        if opencode.uninstall():
+            print("Removed the OpenCode plugin")
+        else:
+            print("No OpenCode plugin of ours to remove")
     return 0
 
 
@@ -116,7 +147,11 @@ def cmd_doctor(args):
     ok = True
 
     installed = settings.is_installed(path)
-    ok &= _check("hooks installed", installed, path)
+    ok &= _check("claude code hooks", installed, path)
+    if opencode.is_available():
+        _check("opencode plugin", opencode.is_installed(), opencode.plugin_path())
+    else:
+        print("  %-22s %s  %s" % ("opencode plugin", "n/a  ", "OpenCode not installed"))
     ok &= _check("hook script present", os.path.exists(HOOK_PATH), HOOK_PATH)
 
     sessions = state.read_all(paths.sessions_dir())
@@ -631,6 +666,9 @@ def build_parser():
     p.add_argument("--python", help="python interpreter for the hook command")
     p.add_argument("--force-terminals", action="store_true",
                    help="overwrite terminal adapters with the bundled versions")
+    p.add_argument("--harness", default="claude-code",
+                   choices=list(harness.names()) + ["all"],
+                   help="which agent harness to wire up (default: claude-code)")
     p.set_defaults(func=cmd_install)
 
     p = sub.add_parser("uninstall", help="remove PokeAgents's hook entries")
