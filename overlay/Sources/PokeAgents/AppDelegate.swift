@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var hidden = HiddenSessions()
 
+    /// Live sessions not drawn because they have no terminal to jump to.
+    private var headlessCount = 0
+
 
     override init() {
         let home = Paths.home()
@@ -82,7 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // first and then asking "is this session still around?" is exactly the
         // bug that made hiding fail: a muted session is never in the filtered
         // set, so it always looked ended and was immediately un-muted.
-        let live = hidden.reconcile(store.loadLive())
+        let all = store.loadLive()
+        let live = hidden.reconcile(
+            Visibility.drawable(all, showHeadless: preferences.showHeadless))
+        headlessCount = preferences.showHeadless ? 0 : Visibility.headlessCount(all)
         // NSScreen.main is a lookup, not a stored property; read it once.
         let screen = screenFrame
         let placements = layout.place(live,
@@ -187,6 +193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(displayMenuItem())
         menu.addItem(sizeMenuItem())
+
+        let headless = NSMenuItem(title: "Show background agents",
+                                  action: #selector(toggleHeadless), keyEquivalent: "")
+        headless.target = self
+        headless.state = preferences.showHeadless ? .on : .off
+        menu.addItem(headless)
 
         NSMenu.popUpContextMenu(menu, with: event, for: window.menuAnchor)
     }
@@ -315,6 +327,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             entry.representedObject = record.sessionID
             menu.addItem(entry)
         }
+        if headlessCount > 0 {
+            let entry = NSMenuItem(title: "\(headlessCount) background (no terminal)",
+                                   action: #selector(toggleHeadless), keyEquivalent: "")
+            entry.target = self
+            entry.toolTip = "Background agents cannot be focused. Click to show them."
+            menu.addItem(entry)
+        }
         if !hidden.isEmpty {
             let entry = NSMenuItem(title: "Show \(hidden.count) hidden",
                                    action: #selector(unhideAll), keyEquivalent: "")
@@ -328,6 +347,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(displayMenuItem())
         menu.addItem(sizeMenuItem())
+
+        let headless = NSMenuItem(title: "Show background agents",
+                                  action: #selector(toggleHeadless), keyEquivalent: "")
+        headless.target = self
+        headless.state = preferences.showHeadless ? .on : .off
+        menu.addItem(headless)
 
         let pause = NSMenuItem(title: isPaused ? "Resume" : "Pause",
                                action: #selector(togglePause), keyEquivalent: "")
@@ -412,6 +437,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func focusFromMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         handleClick(id)
+    }
+
+    @objc private func toggleHeadless() {
+        preferences.showHeadless.toggle()
+        preferences.save()
+        reload()
     }
 
     @objc private func unhideAll() {

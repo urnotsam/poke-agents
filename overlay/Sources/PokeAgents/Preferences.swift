@@ -17,9 +17,14 @@ struct Preferences: Codable, Equatable {
     /// the directory works without also editing this.
     var terminals: [String] = []
 
+    /// Draw sessions with no terminal to jump to. Off by default: a background
+    /// agent cannot be clicked through to, so it is noise next to the sessions
+    /// you can act on.
+    var showHeadless: Bool = false
+
     static let filename = "config.json"
 
-    enum CodingKeys: String, CodingKey { case mode, size, terminals }
+    enum CodingKeys: String, CodingKey { case mode, size, terminals, showHeadless }
 
     init() {}
 
@@ -30,6 +35,7 @@ struct Preferences: Codable, Equatable {
         mode = (try? c.decode(DisplayMode.self, forKey: .mode)) ?? .default
         size = (try? c.decode(SpriteSize.self, forKey: .size)) ?? .default
         terminals = (try? c.decode([String].self, forKey: .terminals)) ?? []
+        showHeadless = (try? c.decode(Bool.self, forKey: .showHeadless)) ?? false
     }
 
     static func url() -> URL {

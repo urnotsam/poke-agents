@@ -218,6 +218,41 @@ func runStoreTests(_ h: Harness) {
         }
     }
 
+    h.suite("Headless visibility") { h in
+        func rec(_ id: String, focusable: Bool) -> SessionRecord {
+            SessionRecord(sessionID: id, label: id, cwd: "/tmp", species: "psyduck",
+                          shiny: false, state: .running, pid: 1, tty: nil,
+                          terminal: nil, startedAt: 1, updatedAt: 1, lastTool: nil,
+                          focusable: focusable)
+        }
+
+        let world = [rec("session", focusable: true),
+                     rec("background", focusable: false)]
+
+        h.equal(Visibility.drawable(world, showHeadless: false).map(\.sessionID),
+                ["session"], "a session with no terminal is not drawn by default")
+        h.equal(Visibility.drawable(world, showHeadless: true).map(\.sessionID),
+                ["session", "background"], "the setting shows it")
+        h.equal(Visibility.headlessCount(world), 1, "but it is still counted")
+
+        h.equal(Visibility.drawable([], showHeadless: false).count, 0, "empty is fine")
+        h.equal(Visibility.headlessCount([]), 0, "nothing to count")
+
+        let allFocusable = [rec("a", focusable: true), rec("b", focusable: true)]
+        h.equal(Visibility.drawable(allFocusable, showHeadless: false).count, 2,
+                "ordinary sessions are unaffected")
+        h.equal(Visibility.headlessCount(allFocusable), 0, "and none are counted")
+
+        let allHeadless = [rec("a", focusable: false), rec("b", focusable: false)]
+        h.equal(Visibility.drawable(allHeadless, showHeadless: false).count, 0,
+                "all headless means nothing drawn")
+        h.equal(Visibility.headlessCount(allHeadless), 2, "all counted")
+
+        // Order must survive, or sprites would shuffle between reloads.
+        h.equal(Visibility.drawable(world, showHeadless: true).map(\.sessionID),
+                world.map(\.sessionID), "order is preserved")
+    }
+
     h.suite("Hidden sessions") { h in
         func rec(_ id: String, _ state: SessionState = .running) -> SessionRecord {
             SessionRecord(sessionID: id, label: id, cwd: "/tmp", species: "psyduck",

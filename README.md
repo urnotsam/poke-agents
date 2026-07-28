@@ -170,15 +170,30 @@ art is the fastest way to make it look cheap.
 | `attention` | **The agent is waiting on you** | Fast bob, orange `!` bubble, pulsing glow, label at full brightness |
 | `done` | The turn finished | Static sprite, dimmed to 60%, `zZz` drifting up |
 
-A sprite may also carry a **circle-with-slash badge**, meaning there is no
-terminal to jump to — a background agent (`claude --bg`) has no controlling
-terminal at all. It is still a real running session worth seeing; clicking it
-just shakes, and the right-click menu says why instead of offering a Focus item
-that would do nothing.
+### Background agents
 
-The badge is drawn rather than a colour treatment, because the other visual
-channels are already taken: opacity means `done`, the glow and bubble mean
-`attention`. It also means the mark does not depend on colour vision.
+A background agent (`claude --bg`, or a forked session) has no controlling
+terminal, so there is nothing to click through to. **These are hidden by
+default** — they cannot be acted on, so they would only compete for attention
+with the sessions that can.
+
+They are not forgotten. The menu bar shows `N background (no terminal)` while any
+are live, and clicking that — or **Show background agents** in the menu — draws
+them. When shown, they carry a **circle-with-slash badge** and an outlined label,
+clicking them shakes, and the right-click menu says why rather than offering a
+Focus item that would do nothing.
+
+`"showHeadless": true` in `config.json` makes that permanent.
+
+The badge is drawn rather than a colour treatment: opacity already means `done`
+and the glow means `attention`, so those channels are taken, and a drawn mark
+does not depend on colour vision.
+
+### What does *not* get a sprite
+
+Subagents — the `Task` fan-outs an agent spawns internally — run inside their
+parent session and never start a session of their own, so they produce no
+record and no sprite. The parent simply shows `running` while they work.
 
 `attention` comes from Claude Code's `Notification` hook, which covers both
 permission prompts and idle input requests. It's the state the whole thing exists
