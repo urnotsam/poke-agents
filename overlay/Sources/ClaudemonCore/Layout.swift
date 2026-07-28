@@ -42,11 +42,19 @@ public struct Layout: Sendable {
         public var margin: Double
         public var wanderRange: Double
         public var clusterColumns: Int
+        /// Footprint of the whole sprite card, label included.
+        ///
+        /// A cluster packs sprites in a grid, so spacing it by sprite size alone
+        /// leaves the labels overlapping each other — and the label is what
+        /// identifies a session, since the species is random.
+        public var cellWidth: Double
+        public var cellHeight: Double
 
         public init(maxVisible: Int = 12, spriteSize: Double = 72,
                     minGap: Double = 16, edgeInset: Double = 10,
                     bubbleInset: Double = 30, margin: Double = 24,
-                    wanderRange: Double = 26, clusterColumns: Int = 3) {
+                    wanderRange: Double = 26, clusterColumns: Int = 3,
+                    cellWidth: Double? = nil, cellHeight: Double? = nil) {
             self.maxVisible = maxVisible
             self.spriteSize = spriteSize
             self.minGap = minGap
@@ -55,6 +63,8 @@ public struct Layout: Sendable {
             self.margin = margin
             self.wanderRange = wanderRange
             self.clusterColumns = clusterColumns
+            self.cellWidth = cellWidth ?? spriteSize * 2
+            self.cellHeight = cellHeight ?? spriteSize * 1.6
         }
 
         /// Geometry scaled to a sprite size.
@@ -62,14 +72,18 @@ public struct Layout: Sendable {
         /// The app and the tests both go through this, so the arrangement that
         /// ships cannot quietly differ from the one that was verified.
         public static func standard(spriteSize: Double, bubbleInset: Double,
-                                    maxVisible: Int = 12) -> Config {
+                                    maxVisible: Int = 12,
+                                    cellWidth: Double? = nil,
+                                    cellHeight: Double? = nil) -> Config {
             Config(maxVisible: maxVisible,
                    spriteSize: spriteSize,
                    minGap: (spriteSize * 0.22).rounded(),
                    edgeInset: 10,
                    bubbleInset: bubbleInset,
                    margin: 24,
-                   wanderRange: (spriteSize * 0.36).rounded())
+                   wanderRange: (spriteSize * 0.36).rounded(),
+                   cellWidth: cellWidth,
+                   cellHeight: cellHeight)
         }
     }
 
@@ -103,7 +117,7 @@ public struct Layout: Sendable {
         if mode.isCluster {
             let columns = max(1, config.clusterColumns)
             let usableHeight = max(0, screenHeight - config.margin * 2)
-            let rows = max(1, Int(usableHeight / pitch))
+            let rows = max(1, Int(usableHeight / (config.cellHeight + config.minGap)))
             fits = columns * rows
         } else if mode.travels {
             fits = Int(trackLength(screenWidth: screenWidth, screenHeight: screenHeight) / pitch)
@@ -217,8 +231,12 @@ public struct Layout: Sendable {
     private func placeCluster(_ chosen: [SessionRecord],
                               screenWidth: Double, screenHeight: Double) -> [Placement] {
         let columns = max(1, min(config.clusterColumns, chosen.count))
-        let pitch = config.spriteSize + config.minGap
-        // Half the gap each, so two neighbouring rows can never touch.
+
+        // Spaced by the whole card, not by the sprite, so labels stay legible
+        // instead of sitting on top of each other.
+        let columnPitch = config.cellWidth + config.minGap
+        let rowPitch = config.cellHeight + config.minGap
+        // Half the leftover gap each, so two neighbouring rows can never touch.
         let amplitude = config.minGap / 2
 
         let onLeft = mode.anchor == .topLeft || mode.anchor == .bottomLeft
@@ -229,16 +247,18 @@ public struct Layout: Sendable {
             let row = index / columns
 
             let x = onLeft
-                ? config.margin + Double(column) * pitch
-                : screenWidth - config.margin - config.spriteSize - Double(column) * pitch
+                ? config.margin + Double(column) * columnPitch
+                : screenWidth - config.margin - config.spriteSize
+                    - Double(column) * columnPitch
             let y = onTop
-                ? screenHeight - config.margin - config.spriteSize - Double(row) * pitch
-                : config.margin + Double(row) * pitch + amplitude
+                ? screenHeight - config.margin - config.spriteSize
+                    - Double(row) * rowPitch - amplitude
+                : config.margin + Double(row) * rowPitch + amplitude
 
             return Placement(sessionID: record.sessionID,
                              slot: index,
                              trackOffset: 0,
-                             anchor: Point(x: x, y: onTop ? y - amplitude : y),
+                             anchor: Point(x: x, y: y),
                              wanderAxis: .vertical,
                              wanderAmplitude: amplitude,
                              phase: Self.phase(for: record.sessionID))

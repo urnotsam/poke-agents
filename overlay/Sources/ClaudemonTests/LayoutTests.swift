@@ -357,6 +357,32 @@ private func runClusterTests(_ h: Harness) {
             h.equal(rows.count, 3, "\(mode): seven sprites over three columns fill three rows")
         }
 
+        // The label carries a session's identity, so cards must not overlap
+        // either — spacing a grid by sprite size alone leaves labels stacked on
+        // top of each other, which the sprite-overlap check cannot see.
+        for mode in DisplayMode.allCases where mode.isCluster {
+            for (size, width, height) in sizedScreens {
+                var cfg = config(for: size)
+                cfg.cellWidth = size.points * 2.1
+                cfg.cellHeight = size.points * 1.7
+                let layout = Layout(config: cfg, mode: mode)
+                let capacity = layout.capacity(screenWidth: width, screenHeight: height)
+                let placements = layout.place(
+                    (0..<capacity).map { make(id: "s\($0)", startedAt: $0) },
+                    screenWidth: width, screenHeight: height)
+
+                for i in placements.indices {
+                    for j in (i + 1)..<placements.count {
+                        let dx = abs(placements[i].anchor.x - placements[j].anchor.x)
+                        let dy = abs(placements[i].anchor.y - placements[j].anchor.y)
+                        h.expect(dx >= cfg.cellWidth - epsilon || dy >= cfg.cellHeight - epsilon,
+                                 "\(mode)/\(size) @\(width)x\(height): cards "
+                                 + "\(i) and \(j) overlap (dx=\(dx) dy=\(dy))")
+                    }
+                }
+            }
+        }
+
         // Corners must actually be in their corner.
         let size = 72.0
         let cases: [(DisplayMode, Bool, Bool)] = [

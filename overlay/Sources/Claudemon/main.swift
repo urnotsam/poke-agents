@@ -2,10 +2,16 @@ import AppKit
 
 let app = NSApplication.shared
 
-// Offscreen preview mode, used to inspect the visual layer without a screenshot.
-if let target = ProcessInfo.processInfo.environment["CLAUDEMON_RENDER"], !target.isEmpty {
+// Offscreen renders, used to produce documentation images and to inspect the
+// visual layer without capturing anyone's actual screen.
+let environment = ProcessInfo.processInfo.environment
+if let target = environment["CLAUDEMON_RENDER"], !target.isEmpty {
     app.setActivationPolicy(.prohibited)
     RenderPreview.run(to: target)
+}
+if let target = environment["CLAUDEMON_RENDER_MODES"], !target.isEmpty {
+    app.setActivationPolicy(.prohibited)
+    RenderMockDesktop.run(to: target)
 }
 
 let delegate = AppDelegate()

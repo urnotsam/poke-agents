@@ -13,7 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static func layoutConfig(for metrics: SpriteMetrics) -> Layout.Config {
         .standard(spriteSize: Double(metrics.sprite),
-                  bubbleInset: Double(metrics.topInset) + 10)
+                  bubbleInset: Double(metrics.topInset) + 10,
+                  cellWidth: Double(metrics.total.width),
+                  cellHeight: Double(metrics.total.height))
     }
 
     private var watcher: DirectoryWatcher?

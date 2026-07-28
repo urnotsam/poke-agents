@@ -6,9 +6,18 @@ Every session gets a sprite. It wanders your screen while the agent works, stops
 and waves an exclamation mark when the agent needs you, and curls up asleep when
 the turn is done. Click one to jump straight to the terminal running it.
 
+![Four display modes on a mocked desktop](docs/images/display-modes.png)
+
 ![Three sprite states at three sizes](docs/images/states-and-sizes.png)
 
-*Left to right: `running`, `attention`, `done`. Top to bottom: large, medium, small.*
+*Sprite states, left to right: `running`, `attention`, `done`. Sizes, top to
+bottom: large, medium, small.*
+
+> Both images are generated, not captured. The wallpaper and window shapes are
+> drawn by the app in an offscreen render, the session names are invented, and no
+> real screen appears anywhere — but the sprite positions come from the actual
+> layout engine, so the arrangements are exactly what you get. Regenerate them
+> with `CLAUDEMON_RENDER_MODES=out.png Claudemon.app/Contents/MacOS/Claudemon`.
 
 The point is peripheral vision. If you run several agents at once, the thing you
 actually need to know is *which one is waiting on you* — and you need to know it
@@ -115,6 +124,8 @@ Twelve arrangements, from the menu bar icon under **Display**:
 | **Static** | Top, Bottom, Left, Right | Evenly spaced along the edge, holding position |
 | **Cluster** | Top Left, Top Right, Bottom Left, Bottom Right | A three-column grid tucked in the corner |
 
+Four of the twelve are pictured at the top of this page.
+
 All twelve come from one geometry model rather than twelve special cases. The
 rule that makes it work: **sprites wander only across their line of travel, never
 along it.** Wandering along the line would let neighbours close the gap and
@@ -122,9 +133,11 @@ overlap; wandering across it never can. In the marquee modes every sprite also
 travels at exactly the same speed, so the even spacing assigned once is spacing
 kept forever.
 
-Twelve modes × three sizes × five screen sizes are covered by ~298,000 assertions
-checking that sprites never overlap, never leave the screen, and never jump when
-their state changes.
+Twelve modes × three sizes × five screen sizes are covered by ~302,000 assertions
+checking that sprites never overlap, never leave the screen, never jump when
+their state changes, and — in the cluster modes — that the labels don't collide
+either. That last one exists because generating the screenshots above is what
+revealed the labels overlapping while the sprites technically didn't.
 
 ## Sizes
 
