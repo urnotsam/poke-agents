@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "hook"))
 
 from pokeagents import (atomicio, events, harness, labels, opencode, paths,
-                       process, settings, species, sprites, state, terminals)  # noqa: E402
+                       plugins, process, settings, species, sprites, state,
+                       terminals)  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK_PATH = os.path.join(REPO_ROOT, "hook", "pokeagents_hook.py")
@@ -68,6 +69,27 @@ def cmd_install(args):
             print("  plugin:   %s" % target)
             print("  events:   %s" % ", ".join(sorted(harness.OPENCODE.event_map)))
             print("  restart OpenCode for it to load the plugin.")
+
+    for name, available, install_fn, where in (
+        ("goose", plugins.goose_available, plugins.goose_install, "hooks"),
+        ("crush", plugins.crush_available, plugins.crush_install, "config"),
+    ):
+        if wanted not in (name, "all"):
+            continue
+        if wanted == "all" and not available():
+            print("\n%s: not installed, skipped" % harness.get(name).title)
+            continue
+        try:
+            target = install_fn(HOOK_PATH, python=args.python)
+        except plugins.PluginError as exc:
+            return _fail(str(exc))
+        installed_any = True
+        entry = harness.get(name)
+        print("\n%s" % entry.title)
+        print("  %-9s %s" % (where + ":", target))
+        print("  events:   %s" % ", ".join(sorted(entry.event_map)))
+        if entry.limitations:
+            print("  note:     %s" % _wrap(entry.limitations, 60))
 
     if not installed_any:
         return _fail("nothing to install for harness %r" % wanted)
@@ -133,10 +155,14 @@ def cmd_uninstall(args):
         print("Removed hooks from %s" % path)
 
     if args.harness in ("opencode", "all"):
-        if opencode.uninstall():
-            print("Removed the OpenCode plugin")
-        else:
-            print("No OpenCode plugin of ours to remove")
+        print("Removed the OpenCode plugin" if opencode.uninstall()
+              else "No OpenCode plugin of ours to remove")
+    if args.harness in ("goose", "all"):
+        print("Removed the goose hooks" if plugins.goose_uninstall()
+              else "No goose hooks of ours to remove")
+    if args.harness in ("crush", "all"):
+        print("Removed the Crush hooks" if plugins.crush_uninstall()
+              else "No Crush hooks of ours to remove")
     return 0
 
 
@@ -148,10 +174,18 @@ def cmd_doctor(args):
 
     installed = settings.is_installed(path)
     ok &= _check("claude code hooks", installed, path)
-    if opencode.is_available():
-        _check("opencode plugin", opencode.is_installed(), opencode.plugin_path())
-    else:
-        print("  %-22s %s  %s" % ("opencode plugin", "n/a  ", "OpenCode not installed"))
+    for label, available, installed, where in (
+        ("opencode plugin", opencode.is_available, opencode.is_installed,
+         opencode.plugin_path),
+        ("goose hooks", plugins.goose_available, plugins.goose_is_installed,
+         plugins.goose_path),
+        ("crush hooks", plugins.crush_available, plugins.crush_is_installed,
+         plugins.crush_path),
+    ):
+        if available():
+            _check(label, installed(), where())
+        else:
+            print("  %-22s %s  %s" % (label, "n/a  ", "not installed"))
     ok &= _check("hook script present", os.path.exists(HOOK_PATH), HOOK_PATH)
 
     sessions = state.read_all(paths.sessions_dir())
@@ -649,6 +683,12 @@ def _install_stop_flag():
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
     return stop
+
+
+def _wrap(text, width):
+    """Fold a note under the CLI's indentation."""
+    import textwrap
+    return ("\n" + " " * 12).join(textwrap.wrap(text, width))
 
 
 def _fail(message):

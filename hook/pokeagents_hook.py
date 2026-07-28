@@ -50,6 +50,14 @@ def main() -> int:
             return 0
 
         payload = json.loads(raw)
+
+        # Harnesses that cannot add a field to their payload say so on the
+        # command line instead: `pokeagents_hook.py --harness goose`.
+        if "--harness" in sys.argv:
+            index = sys.argv.index("--harness")
+            if index + 1 < len(sys.argv):
+                payload["harness"] = sys.argv[index + 1]
+
         runner.apply_event(
             paths.sessions_dir(), payload,
             resolve_proc=lambda: process.find_agent(os.getpid(),

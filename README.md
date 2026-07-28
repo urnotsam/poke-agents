@@ -6,8 +6,8 @@ Every session gets a sprite. It wanders your screen while the agent works, stops
 and waves an exclamation mark when the agent needs you, and curls up asleep when
 the turn is done. Click one to jump straight to the terminal running it.
 
-Works with **Claude Code** and **OpenCode** out of the box, and
-[adding another harness](harnesses/README.md) is a small map of event names.
+Works with **Claude Code**, **OpenCode**, **goose** and **Crush** out of the box,
+and [adding another harness](harnesses/README.md) is a small map of event names.
 
 ![Four display modes on a mocked desktop](docs/images/display-modes.png)
 
@@ -294,12 +294,23 @@ Only the *producer* half of poke-agents knows which agent you run. The overlay,
 the layout, the terminal adapters and click-to-focus all read a generic session
 record and never learn what created it.
 
-| Harness | Support |
-|---|---|
-| **Claude Code** | Hooks, installed by `poke-agents install` |
-| **OpenCode** | A plugin, installed by `poke-agents install --harness opencode` |
-| Anything herdr or tmux can see | Works through `adopt` with no integration at all |
-| Goose, Crush | Both run shell commands on events, so they need only an event map — see [harnesses/README.md](harnesses/README.md) |
+| Harness | Install | Coverage |
+|---|---|---|
+| **Claude Code** | `poke-agents install` | Full lifecycle |
+| **OpenCode** | `--harness opencode` | Full lifecycle, via a plugin |
+| **goose** | `--harness goose` | Full lifecycle |
+| **Crush** | `--harness crush` | **Partial** — see below |
+| Anything herdr or tmux can see | nothing to install | Appears via `adopt` |
+
+`--harness all` installs every one it finds.
+
+**Crush is partial on purpose.** It currently implements only `PreToolUse`, so a
+sprite appears on the first tool call and stays `running` for the rest of the
+session — there is no idle or end event to move it along. It still despawns when
+Crush exits, because the overlay reaps sessions whose process is gone. This
+improves for free as Crush implements more events. A harness that cannot cover
+the lifecycle has to *declare* that gap, and a test enforces it, so an accidental
+omission can't pass for a deliberate one.
 
 Each harness maps its own event names onto six canonical ones — `start`,
 `activity`, `tool`, `needs-user`, `idle`, `end` — and that map is the whole

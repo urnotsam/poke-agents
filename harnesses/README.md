@@ -33,14 +33,30 @@ rather than collapsing together.
 
 The shipped maps, for reference:
 
-| Canonical | Claude Code | OpenCode |
-|---|---|---|
-| `start` | `SessionStart` | `session.created` |
-| `activity` | `UserPromptSubmit` | `permission.replied` |
-| `tool` | `PreToolUse` | `tool.execute.before` |
-| `needs-user` | `Notification` | `permission.asked`, `session.error` |
-| `idle` | `Stop` | `session.idle` |
-| `end` | `SessionEnd` | `session.deleted` |
+| Canonical | Claude Code | OpenCode | goose | Crush |
+|---|---|---|---|---|
+| `start` | `SessionStart` | `session.created` | `SessionStart` | — |
+| `activity` | `UserPromptSubmit` | `permission.replied` | `UserPromptSubmit`, `PostToolUse` | — |
+| `tool` | `PreToolUse` | `tool.execute.before` | `PreToolUse` | `PreToolUse` |
+| `needs-user` | `Notification` | `permission.asked`, `session.error` | `PostToolUseFailure` | — |
+| `idle` | `Stop` | `session.idle` | `Stop` | — |
+| `end` | `SessionEnd` | `session.deleted` | `SessionEnd` | — |
+
+Harnesses also disagree on what to call the fields in their payload — Claude Code
+sends `hook_event_name` and `cwd`, goose sends `event` and `working_dir` — so a
+harness names its own fields via `event_field` and `cwd_field`.
+
+Harnesses that cannot add a `harness` field to their own payload (goose, Crush)
+are identified on the command line instead: `pokeagents_hook.py --harness goose`.
+
+### Declaring partial support
+
+If your harness cannot report the whole lifecycle, set `limitations` to a
+sentence saying what the user loses. This is enforced: a harness missing any of
+`start`, `tool`, `needs-user`, `idle` or `end` without a declared limitation
+fails the test suite, because an accidental gap and a deliberate one look
+identical in an event map — and the accidental kind produces sprites that never
+appear or never leave.
 
 ## Adding a harness
 

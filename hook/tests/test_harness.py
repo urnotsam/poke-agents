@@ -34,15 +34,32 @@ class TestEveryHarness(unittest.TestCase):
                               "%s maps %s to a non-canonical %r"
                               % (h.name, source, canonical))
 
-    def test_covers_the_whole_lifecycle(self):
+    def test_covers_the_whole_lifecycle_or_says_why_not(self):
         # Missing any of these leaves sprites that never spawn, never alert, or
-        # never go away.
+        # never go away. A harness whose upstream cannot report them all has to
+        # declare the gap, so an accidental omission cannot pass for a deliberate
+        # one.
         required = {events.START, events.TOOL, events.NEEDS_USER,
                     events.IDLE, events.END}
         for h in harness.ALL:
-            self.assertTrue(required.issubset(set(h.event_map.values())),
-                            "%s is missing %s"
-                            % (h.name, required - set(h.event_map.values())))
+            missing = required - set(h.event_map.values())
+            if missing:
+                self.assertTrue(
+                    h.limitations,
+                    "%s is missing %s and does not declare a limitation"
+                    % (h.name, sorted(missing)))
+            else:
+                self.assertFalse(
+                    h.limitations,
+                    "%s declares a limitation but covers everything" % h.name)
+
+    def test_a_complete_harness_needs_no_caveat(self):
+        for name in ("claude-code", "opencode"):
+            self.assertFalse(harness.get(name).limitations, name)
+
+    def test_crush_declares_its_partial_support(self):
+        self.assertTrue(harness.CRUSH.limitations)
+        self.assertIn("PreToolUse", harness.CRUSH.limitations)
 
     def test_every_mapped_event_produces_a_transition(self):
         for h in harness.ALL:
@@ -63,6 +80,58 @@ class TestEveryHarness(unittest.TestCase):
     def test_has_a_title(self):
         for h in harness.ALL:
             self.assertTrue(h.title)
+
+
+class TestGoose(unittest.TestCase):
+    def test_maps_its_own_event_names(self):
+        h = harness.GOOSE
+        self.assertEqual(h.transition_for("SessionStart").state, events.RUNNING)
+        self.assertEqual(h.transition_for("Stop").state, events.DONE)
+        self.assertTrue(h.transition_for("SessionEnd").deletes)
+
+    def test_reads_gooses_field_names(self):
+        # goose sends `event` and `working_dir`, not hook_event_name and cwd.
+        payload = {"event": "Stop", "working_dir": "/tmp/p", "session_id": "s1"}
+        self.assertEqual(harness.GOOSE.event_name(payload), "Stop")
+        self.assertEqual(harness.GOOSE.cwd(payload), "/tmp/p")
+        self.assertEqual(harness.GOOSE.session_id(payload), "s1")
+
+    def test_still_accepts_the_default_field_names(self):
+        payload = {"hook_event_name": "Stop", "cwd": "/tmp/p"}
+        self.assertEqual(harness.GOOSE.event_name(payload), "Stop")
+        self.assertEqual(harness.GOOSE.cwd(payload), "/tmp/p")
+
+    def test_a_failed_tool_asks_for_attention(self):
+        self.assertEqual(harness.GOOSE.transition_for("PostToolUseFailure").state,
+                         events.ATTENTION)
+
+
+class TestCrush(unittest.TestCase):
+    def test_maps_the_one_event_it_has(self):
+        self.assertTrue(harness.CRUSH.transition_for("PreToolUse").records_tool)
+
+    def test_reads_crushs_field_names(self):
+        payload = {"event": "PreToolUse", "cwd": "/tmp/p", "session_id": "313909e"}
+        self.assertEqual(harness.CRUSH.event_name(payload), "PreToolUse")
+        self.assertEqual(harness.CRUSH.cwd(payload), "/tmp/p")
+
+
+class TestFieldReading(unittest.TestCase):
+    def test_missing_fields_read_as_none(self):
+        for h in harness.ALL:
+            self.assertIsNone(h.event_name({}))
+            self.assertIsNone(h.cwd({}))
+            self.assertIsNone(h.session_id({}))
+
+    def test_non_string_fields_are_rejected(self):
+        for h in harness.ALL:
+            self.assertIsNone(h.event_name({h.event_field: 42}))
+            self.assertIsNone(h.cwd({h.cwd_field: []}))
+            self.assertIsNone(h.session_id({h.session_field: 7}))
+
+    def test_an_empty_session_id_is_not_a_session_id(self):
+        for h in harness.ALL:
+            self.assertIsNone(h.session_id({h.session_field: ""}))
 
 
 class TestClaudeCode(unittest.TestCase):

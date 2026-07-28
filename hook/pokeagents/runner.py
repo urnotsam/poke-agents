@@ -42,12 +42,12 @@ def apply_event(directory: str, payload: dict,
     # Which harness produced this decides only how its event is named; from the
     # transition onwards nothing downstream can tell the difference.
     harness = harnesses.get(payload.get("harness"))
-    transition = harness.transition_for(payload.get("hook_event_name"))
+    transition = harness.transition_for(harness.event_name(payload))
     if transition is None:
         return
 
-    session_id = payload.get("session_id")
-    if not isinstance(session_id, str) or not session_id:
+    session_id = harness.session_id(payload)
+    if not session_id:
         return
 
     if transition.deletes:
@@ -92,7 +92,7 @@ def apply_event(directory: str, payload: dict,
 def _spawn(directory, session_id, payload, proc, now, harness, reported_pid=None):
     """Build a fresh record. Also covers hooks installed mid-session, where the
     first event we ever see is something other than SessionStart."""
-    cwd = payload.get("cwd") or os.getcwd()
+    cwd = harness.cwd(payload) or os.getcwd()
     taken = {r.species for r in state.read_all(directory)}
     pick = species.assign(session_id, taken=taken)
 

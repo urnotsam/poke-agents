@@ -28,6 +28,35 @@ class Harness:
     # This harness's event names, mapped onto the canonical vocabulary.
     event_map: Dict[str, str]
 
+    # Harnesses disagree on what to call the fields in their payload: Claude
+    # Code says hook_event_name and cwd, Goose says event and working_dir.
+    # Naming them here keeps the runner from caring.
+    event_field: str = "hook_event_name"
+    cwd_field: str = "cwd"
+    session_field: str = "session_id"
+
+    # Set when the harness cannot report the whole lifecycle, with a note saying
+    # what the user loses. Declaring it is required: an accidental gap and a
+    # deliberate one look identical in the event map, and the accidental kind
+    # produces sprites that never appear or never leave.
+    limitations: str = ""
+
+    def event_name(self, payload: dict) -> Optional[str]:
+        value = payload.get(self.event_field)
+        if value is None and self.event_field != "hook_event_name":
+            value = payload.get("hook_event_name")
+        return value if isinstance(value, str) else None
+
+    def cwd(self, payload: dict) -> Optional[str]:
+        value = payload.get(self.cwd_field)
+        if value is None and self.cwd_field != "cwd":
+            value = payload.get("cwd")
+        return value if isinstance(value, str) else None
+
+    def session_id(self, payload: dict) -> Optional[str]:
+        value = payload.get(self.session_field)
+        return value if isinstance(value, str) and value else None
+
     def canonical(self, event_name: Optional[str]) -> Optional[str]:
         if not event_name:
             return None
@@ -70,7 +99,48 @@ OPENCODE = Harness(
     },
 )
 
-ALL = (CLAUDE_CODE, OPENCODE)
+GOOSE = Harness(
+    name="goose",
+    title="Goose",
+    agent_commands=("goose",),
+    # Goose follows the Open Plugins hooks spec, so the shape matches Claude
+    # Code's closely, but the payload names its fields differently.
+    event_field="event",
+    cwd_field="working_dir",
+    event_map={
+        "SessionStart": events.START,
+        "UserPromptSubmit": events.ACTIVITY,
+        "PreToolUse": events.TOOL,
+        "PostToolUse": events.ACTIVITY,
+        "PostToolUseFailure": events.NEEDS_USER,
+        "Stop": events.IDLE,
+        "SessionEnd": events.END,
+    },
+)
+
+CRUSH = Harness(
+    name="crush",
+    title="Crush",
+    agent_commands=("crush",),
+    event_field="event",
+    # Crush implements only PreToolUse so far, so a sprite spawns on the first
+    # tool call and then stays `running` for the life of the session: there is
+    # no idle or end event to move it on. It still despawns, because the overlay
+    # reaps sessions whose process has exited. This map grows for free as Crush
+    # implements the rest.
+    event_map={
+        "PreToolUse": events.TOOL,
+    },
+    limitations=(
+        "Crush currently implements only PreToolUse, so a sprite appears on the "
+        "first tool call and stays 'running' for the life of the session — there "
+        "is no idle or end event to move it on. It still despawns when Crush "
+        "exits, because the overlay reaps sessions whose process is gone. This "
+        "improves for free as Crush implements more events."
+    ),
+)
+
+ALL = (CLAUDE_CODE, OPENCODE, GOOSE, CRUSH)
 DEFAULT = CLAUDE_CODE
 
 _BY_NAME = {h.name: h for h in ALL}
