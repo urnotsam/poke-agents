@@ -190,6 +190,83 @@ func runStoreTests(_ h: Harness) {
                 "output order does not depend on input order")
     }
 
+    h.suite("Hidden sessions") { h in
+        func rec(_ id: String, _ state: SessionState = .running) -> SessionRecord {
+            SessionRecord(sessionID: id, label: id, cwd: "/tmp", species: "psyduck",
+                          shiny: false, state: state, pid: 1, tty: nil,
+                          terminal: nil, startedAt: 1, updatedAt: 1, lastTool: nil)
+        }
+
+        // The bug this suite exists for: reconciling against the already-filtered
+        // visible set un-muted every sprite on the very next refresh, because a
+        // muted session is never in that set.
+        var hidden = HiddenSessions()
+        hidden.hide("a")
+        let world = [rec("a", .done), rec("b")]
+        for round in 1...20 {
+            let visible = hidden.reconcile(world)
+            h.equal(visible.map(\.sessionID), ["b"],
+                    "round \(round): a muted, unchanged session must stay hidden")
+        }
+
+        // Muting survives ordinary work, which cycles running -> done -> running.
+        var cycling = HiddenSessions()
+        cycling.hide("a")
+        for state in [SessionState.running, .done, .running, .done, .running] {
+            let visible = cycling.reconcile([rec("a", state)])
+            h.expect(visible.isEmpty, "muted session reappeared while merely \(state)")
+        }
+
+        // But an alert always comes back.
+        var alerting = HiddenSessions()
+        alerting.hide("a")
+        _ = alerting.reconcile([rec("a", .done)])
+        h.expect(alerting.contains("a"), "still muted before the alert")
+        let afterAlert = alerting.reconcile([rec("a", .attention)])
+        h.equal(afterAlert.map(\.sessionID), ["a"], "attention un-mutes")
+        h.expect(!alerting.contains("a"), "and the mute is forgotten, not just skipped")
+
+        // Once un-muted it stays visible even if it settles again.
+        h.equal(alerting.reconcile([rec("a", .done)]).map(\.sessionID), ["a"],
+                "an un-muted session does not silently re-mute")
+
+        // A session that ends is forgotten, so a future session cannot inherit
+        // its mute.
+        var ending = HiddenSessions()
+        ending.hide("a")
+        _ = ending.reconcile([])
+        h.expect(!ending.contains("a"), "an ended session is forgotten")
+        h.equal(ending.reconcile([rec("a")]).map(\.sessionID), ["a"],
+                "a later session with the same id is visible")
+
+        var many = HiddenSessions()
+        many.hide("a")
+        many.hide("b")
+        h.equal(many.count, 2, "counts what is muted")
+        h.equal(many.reconcile([rec("a"), rec("b"), rec("c")]).map(\.sessionID), ["c"],
+                "several can be muted at once")
+        many.unhideAll()
+        h.expect(many.isEmpty, "unhideAll clears everything")
+        h.equal(many.reconcile([rec("a"), rec("b"), rec("c")]).count, 3,
+                "and everything comes back")
+
+        var untouched = HiddenSessions()
+        h.equal(untouched.reconcile([rec("a"), rec("b")]).count, 2,
+                "nothing muted means nothing filtered")
+        h.expect(HiddenSessions().isEmpty, "a fresh set is empty")
+
+        var missing = HiddenSessions()
+        missing.hide("never-existed")
+        h.equal(missing.reconcile([rec("a")]).map(\.sessionID), ["a"],
+                "muting an unknown id affects nothing")
+
+        // Reconcile must not disturb the caller's ordering.
+        var ordering = HiddenSessions()
+        ordering.hide("b")
+        h.equal(ordering.reconcile([rec("a"), rec("b"), rec("c")]).map(\.sessionID),
+                ["a", "c"], "order is preserved")
+    }
+
     h.suite("Sprite naming") { h in
         h.equal(SpriteNaming.filename(species: "psyduck", shiny: false, animated: true),
                 "psyduck.gif", "animated plain")

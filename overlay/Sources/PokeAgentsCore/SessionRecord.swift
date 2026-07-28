@@ -66,10 +66,18 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// by the session's own hook.
     public var isAdopted: Bool { sessionID.hasPrefix("adopted-") }
 
-    /// Showdown species ids are lowercase alphanumeric, nothing else.
+    /// Showdown species ids are lowercase alphanumerics plus hyphens, which
+    /// regional forms and megas need ("charizard-mega-x").
+    ///
+    /// This value becomes a filename in the sprite cache and session files live
+    /// in a user-writable directory, so what matters is that it can never
+    /// contain a path separator or a dot.
     public static func isValidSpecies(_ value: String) -> Bool {
-        !value.isEmpty && value.count <= 64
-            && value.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        guard !value.hasPrefix("-"), !value.hasSuffix("-") else { return false }
+        return value.allSatisfy {
+            $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-")
+        }
     }
 
     public init(from decoder: Decoder) throws {

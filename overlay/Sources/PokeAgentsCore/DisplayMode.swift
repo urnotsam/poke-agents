@@ -20,7 +20,9 @@ public enum DisplayMode: String, Codable, CaseIterable, Sendable {
     case staticTop, staticBottom, staticLeft, staticRight
     case clusterTopLeft, clusterTopRight, clusterBottomLeft, clusterBottomRight
 
-    public static let `default`: DisplayMode = .marqueeTop
+    /// A corner cluster keeps sprites out of the working area by default; the
+    /// marquee modes are more fun but cross whatever you are looking at.
+    public static let `default`: DisplayMode = .clusterBottomRight
 
     /// True when sprites travel along their edge and wrap around.
     public var travels: Bool {

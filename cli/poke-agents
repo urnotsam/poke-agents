@@ -147,15 +147,20 @@ def _check(label, ok, detail=""):
     return bool(ok)
 
 
+# Must match DisplayMode.default in PokeAgentsCore/DisplayMode.swift; the
+# overlay only writes config.json once the mode is changed from the menu.
+_DEFAULT_MODE = "clusterBottomRight"
+
+
 def _display_mode():
     """Read the overlay's chosen arrangement, which it stores next to the state."""
     import json
     path = os.path.join(paths.home(), "config.json")
     try:
         with open(path) as fh:
-            return json.load(fh).get("mode", "marqueeTop (default)")
+            return json.load(fh).get("mode", _DEFAULT_MODE + " (default)")
     except (OSError, ValueError):
-        return "marqueeTop (default)"
+        return _DEFAULT_MODE + " (default)"
 
 
 def _overlay_running():

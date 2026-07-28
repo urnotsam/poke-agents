@@ -29,14 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var isPaused = false
 
-    /// Sessions muted from the display.
-    ///
-    /// Only `attention` brings one back. An earlier version un-muted on any
-    /// state change, which made hiding useless: a working session cycles
-    /// running -> done -> running on every tool call, so it reappeared within
-    /// seconds. Muting still cannot lose an alert, which is the property that
-    /// actually matters.
-    private var hidden: Set<String> = []
+    private var hidden = HiddenSessions()
 
 
     override init() {
@@ -85,8 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func reload() {
         guard !isPaused else { return }
 
-        let all = store.loadLive()
-        let live = all.filter { !hidden.contains($0.sessionID) }
+        // Reconcile against every live record, muted ones included. Filtering
+        // first and then asking "is this session still around?" is exactly the
+        // bug that made hiding fail: a muted session is never in the filtered
+        // set, so it always looked ended and was immediately un-muted.
+        let live = hidden.reconcile(store.loadLive())
         // NSScreen.main is a lookup, not a stored property; read it once.
         let screen = screenFrame
         let placements = layout.place(live,
@@ -95,15 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let placed = Dictionary(uniqueKeysWithValues: placements.map { ($0.sessionID, $0) })
 
         records = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionID, $0) })
-
-        // Bring back anything that now needs you, and forget sessions that ended.
-        for id in hidden {
-            guard let record = records[id] else {
-                hidden.remove(id)
-                continue
-            }
-            if record.state == .attention { hidden.remove(id) }
-        }
 
         for record in live where placed[record.sessionID] != nil {
             let image = cache.image(for: record)
@@ -233,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let id = sessionID(from: sender), let record = records[id] else { return }
         // A mute, not a delete: the sprite returns if the session comes to need
         // you, so hiding can never make an alert disappear silently.
-        hidden.insert(id)
+        hidden.hide(id)
         windows[id]?.fadeOutAndClose()
         windows.removeValue(forKey: id)
         Diagnostics.log("hid \(record.label) until it needs attention")
@@ -412,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func unhideAll() {
-        hidden.removeAll()
+        hidden.unhideAll()
         reload()
     }
 

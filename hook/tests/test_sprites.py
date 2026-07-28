@@ -68,10 +68,22 @@ class TestFilenames(unittest.TestCase):
 
 class TestRoster(unittest.TestCase):
     def test_species_names_are_valid_showdown_ids(self):
-        # Showdown ids strip punctuation: nidoran-f is nidoranf, farfetchd has
-        # no apostrophe. A wrong id means a permanent placeholder sprite.
+        # Showdown ids strip punctuation but keep hyphens for forms:
+        # "charizard-mega-x", "farfetchd" (no apostrophe), "nidoranf" (no dash
+        # before the gender). A wrong id means a permanent placeholder sprite.
         for name in species.SPECIES:
-            self.assertRegex(name, r"^[a-z0-9]+$", "%s is not a Showdown id" % name)
+            self.assertRegex(name, r"^[a-z0-9]+(-[a-z0-9]+)*$",
+                             "%s is not a Showdown id" % name)
+
+    def test_no_species_can_escape_the_cache_directory(self):
+        for name in species.SPECIES:
+            self.assertNotIn("/", name)
+            self.assertNotIn(".", name)
+            self.assertNotIn("..", name)
+
+    def test_the_roster_is_substantial(self):
+        # A small roster means frequent collisions and repeated sprites.
+        self.assertGreater(len(species.SPECIES), 1000)
 
 
 if __name__ == "__main__":

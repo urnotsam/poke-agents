@@ -60,7 +60,7 @@ git clone https://github.com/urnotsam/poke-agents.git
 cd poke-agents
 
 ./overlay/build.sh            # builds PokeAgents.app (~30s, no Xcode required)
-./cli/poke-agents fetch --all   # caches 180 species (~720 files, one time)
+./cli/poke-agents fetch --all   # caches the roster (~118 MB, one time)
 ./cli/poke-agents install       # wires the hooks and installs terminal adapters
 open overlay/PokeAgents.app
 ```
@@ -123,7 +123,9 @@ Two consequences worth knowing:
 
 ## Display modes
 
-Twelve arrangements, from the menu bar icon under **Display**:
+Twelve arrangements, from the menu bar icon under **Display**. The default is
+**Cluster — Bottom Right**, which keeps sprites out of your working area; the
+marquee modes are livelier but travel across whatever you are looking at.
 
 | Group | Modes | Behaviour |
 |---|---|---|
@@ -173,7 +175,7 @@ hidden itself.
 Species is derived from the session id:
 
 ```
-species = SPECIES[fnv1a(session_id) % 180]
+species = SPECIES[fnv1a(session_id) % 1134]
 ```
 
 Session ids are random, so this feels like a wild encounter — but because it's
@@ -181,13 +183,24 @@ derived rather than stored, the same session keeps its species across an overlay
 restart with nothing persisted. If two live sessions would draw the same species,
 the second probes forward to the next free one, so you never see doubles.
 
-The roster is 180 species, curated for silhouette legibility at 72pt — the test
-of inclusion is whether you can tell what it is from across a desk.
+The roster is **1,134 sprites**: every species Pokémon Showdown has Gen 5
+artwork for in all four variants — animated, animated shiny, static, static
+shiny — which is what the three states need between them. Regional forms, megas
+and Gigantamax are in, so Alolan Raichu and Galarian Ponyta are their own
+encounters.
+
+Female variants are the one deliberate exclusion. They differ from the base by a
+handful of pixels, so at 72pt they read as the same creature and would only make
+two sessions harder to tell apart.
+
+Caching all of it is about **118 MB across 4,536 files**. You don't have to:
+anything not cached falls back to a drawn Poké Ball, and `poke-agents fetch
+<species>` takes named species if you would rather keep it small.
 
 ### Shiny
 
-**A sprite has a 1 in 64 chance of being shiny** (about 1.6%), decided by a second
-hash of the session id. Like the species, it's derived rather than rolled, so a
+**A sprite has a 1 in 64 chance of being shiny** (about 1.6%), decided by a
+second hash of the session id. Like the species, it's derived rather than rolled, so a
 shiny session stays shiny for its whole life and across restarts.
 
 That is *far* more generous than the games: 1 in 8192 in Gen 2–5, 1 in 4096 from

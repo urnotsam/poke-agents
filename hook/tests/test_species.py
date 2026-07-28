@@ -66,6 +66,13 @@ class TestAssign(unittest.TestCase):
         for name in species.SPECIES:
             self.assertRegex(name, r"^[a-z0-9-]+$")
 
+    def test_a_large_roster_makes_collisions_rare(self):
+        # With one species per session and linear probing, a bigger roster means
+        # concurrent sessions almost never contend for the same sprite.
+        assigned = {species.assign("session-%d" % i, taken=set()).name
+                    for i in range(50)}
+        self.assertGreater(len(assigned), 45)
+
 
 if __name__ == "__main__":
     unittest.main()
