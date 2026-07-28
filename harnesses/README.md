@@ -1,8 +1,8 @@
 # Agent harnesses
 
-A harness is whatever runs the coding agent — Claude Code, OpenCode, Goose,
-Crush, your own script. poke-agents ships integrations for Claude Code and
-OpenCode, and adding another is small.
+A harness is whatever runs the coding agent — Claude Code, OpenCode, goose,
+Crush, your own script. poke-agents ships integrations for all four, and adding
+another is small.
 
 ## What the rest of the system knows about harnesses
 
@@ -80,7 +80,8 @@ GOOSE = Harness(
 
 `agent_commands` is only used to find the owning process when the harness cannot
 report its own pid. Tests enforce that every harness maps onto real canonical
-events and covers the whole lifecycle, so a half-wired harness fails loudly.
+events, and that it either covers the whole lifecycle or declares why not, so a
+half-wired harness fails loudly.
 
 ### 2. Make it call the hook
 

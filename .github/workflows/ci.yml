@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # macOS is not optional: the overlay is AppKit, and the terminal adapters
+    # shell out to osascript.
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          python3 --version
+
+      - name: Python tests
+        working-directory: hook
+        run: PYTHONPATH=. python3 -m unittest discover -s tests -v
+
+      - name: Swift tests
+        working-directory: overlay
+        # XCTest ships with full Xcode, not the Command Line Tools, so the suite
+        # runs as a plain executable.
+        run: swift run PokeAgentsTests
+
+      - name: Build the app bundle
+        run: ./overlay/build.sh
+
+      - name: Terminal adapters are valid shell
+        run: |
+          for adapter in terminals/*; do
+            [ -f "$adapter" ] && [ "${adapter##*.}" != "md" ] || continue
+            bash -n "$adapter"
+            test -x "$adapter" || { echo "$adapter is not executable"; exit 1; }
+          done
+
+      - name: CLI smoke test
+        run: |
+          ./cli/poke-agents --help
+          ./cli/poke-agents doctor || true   # exits non-zero when nothing is installed
+          ./cli/poke-agents terminals || true
+
+      - name: Install is safe against an existing settings file
+        run: |
+          mkdir -p /tmp/ci
+          echo '{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo keep-me"}]}]}}' > /tmp/ci/settings.json
+          ./cli/poke-agents install --settings /tmp/ci/settings.json
+          grep -q "keep-me" /tmp/ci/settings.json || { echo "existing hook was lost"; exit 1; }
+          ./cli/poke-agents uninstall --settings /tmp/ci/settings.json --harness claude-code
+          grep -q "keep-me" /tmp/ci/settings.json || { echo "uninstall removed too much"; exit 1; }
